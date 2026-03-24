@@ -49,9 +49,13 @@ int main(int argc, char** argv) {
     std::cout << "Client connected\n";
 
     char buffer[1024];
-    read(client_fd, buffer, sizeof(buffer));
-
-    send(client_fd, "+PONG\r\n", 7, 0);
+    while (true) {
+        ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer));
+        if (bytes_read <= 0) {
+            break;
+        }
+        send(client_fd, "+PONG\r\n", 7, 0);
+    }
 
     close(client_fd);
     close(server_fd);
