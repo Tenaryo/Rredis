@@ -61,4 +61,6 @@ std::string RespParser::encode_bulk_string(std::string_view s) {
 
 std::string RespParser::encode_null_bulk_string() { return "$-1\r\n"; }
 
+std::string RespParser::encode_integer(int64_t n) { return ":" + std::to_string(n) + "\r\n"; }
+
 std::string RespParser::encode_error(std::string_view s) { return "-" + std::string(s) + "\r\n"; }

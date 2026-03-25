@@ -17,4 +17,5 @@ class CommandHandler {
     static std::string handle_echo(std::string_view args);
     std::string handle_set(const std::vector<std::string>& args);
     std::string handle_get(const std::string& key);
+    std::string handle_rpush(const std::vector<std::string>& args);
 };

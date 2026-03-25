@@ -38,6 +38,11 @@ std::string CommandHandler::process(std::string_view input) {
             return RespParser::encode_error("ERR wrong number of arguments for 'get' command");
         }
         return handle_get(args[1]);
+    } else if (cmd == "RPUSH") {
+        if (args.size() < 3) {
+            return RespParser::encode_error("ERR wrong number of arguments for 'rpush' command");
+        }
+        return handle_rpush(args);
     }
 
     return RespParser::encode_error("ERR unknown command '" + cmd + "'");
@@ -92,4 +97,13 @@ std::string CommandHandler::handle_get(const std::string& key) {
         return RespParser::encode_bulk_string(*value);
     }
     return RespParser::encode_null_bulk_string();
+}
+
+std::string CommandHandler::handle_rpush(const std::vector<std::string>& args) {
+    const std::string& key = args[1];
+    int64_t count = 0;
+    for (size_t i = 2; i < args.size(); ++i) {
+        count = store_.rpush(key, args[i]);
+    }
+    return RespParser::encode_integer(count);
 }

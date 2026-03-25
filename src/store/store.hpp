@@ -2,19 +2,22 @@
 
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <variant>
 
 class Store {
     struct Entry {
-        std::string value;
+        std::variant<std::string, std::deque<std::string>> value;
         std::optional<std::chrono::steady_clock::time_point> expiry;
     };
 
     std::unordered_map<std::string, Entry> data_;
 
     static std::chrono::steady_clock::time_point get_current_time();
+    bool is_expired(const Entry& entry) const;
   public:
     void set(const std::string& key,
              const std::string& value,
@@ -22,4 +25,6 @@ class Store {
     std::optional<std::string> get(const std::string& key);
     bool exists(const std::string& key);
     bool del(const std::string& key);
+
+    int64_t rpush(const std::string& key, const std::string& value);
 };
