@@ -10,5 +10,6 @@ class RespParser {
 
     static std::string encode_simple_string(std::string_view s);
     static std::string encode_bulk_string(std::string_view s);
+    static std::string encode_null_bulk_string();
     static std::string encode_error(std::string_view s);
 };

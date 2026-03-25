@@ -2,6 +2,7 @@
 #include "event_loop/event_loop.hpp"
 #include "handler/command_handler.hpp"
 #include "server/server.hpp"
+#include "store/store.hpp"
 #include <iostream>
 #include <memory>
 #include <unordered_map>
@@ -28,8 +29,10 @@ int main() {
 
     event_loop.add_fd(server.fd());
 
+    Store store;
+    CommandHandler handler(store);
+
     std::unordered_map<int, std::unique_ptr<Connection>> connections;
-    CommandHandler handler;
 
     event_loop.run(server.fd(), [&](int fd) {
         if (fd == server.fd()) {

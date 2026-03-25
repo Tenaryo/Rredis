@@ -59,4 +59,6 @@ std::string RespParser::encode_bulk_string(std::string_view s) {
     return "$" + std::to_string(s.size()) + "\r\n" + std::string(s) + "\r\n";
 }
 
+std::string RespParser::encode_null_bulk_string() { return "$-1\r\n"; }
+
 std::string RespParser::encode_error(std::string_view s) { return "-" + std::string(s) + "\r\n"; }
