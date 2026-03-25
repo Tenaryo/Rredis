@@ -32,7 +32,7 @@ std::string CommandHandler::process(std::string_view input) {
         if (args.size() < 3) {
             return RespParser::encode_error("ERR wrong number of arguments for 'set' command");
         }
-        return handle_set(args[1], args[2]);
+        return handle_set(args);
     } else if (cmd == "GET") {
         if (args.size() < 2) {
             return RespParser::encode_error("ERR wrong number of arguments for 'get' command");
@@ -49,8 +49,40 @@ std::string CommandHandler::handle_echo(std::string_view args) {
     return RespParser::encode_bulk_string(args);
 }
 
-std::string CommandHandler::handle_set(const std::string& key, const std::string& value) {
-    store_.set(key, value);
+std::string CommandHandler::handle_set(const std::vector<std::string>& args) {
+    const std::string& key = args[1];
+    const std::string& value = args[2];
+
+    std::optional<uint64_t> ttl_ms;
+
+    for (size_t i = 3; i < args.size(); ++i) {
+        std::string option = args[i];
+        std::transform(option.begin(), option.end(), option.begin(), [](unsigned char c) {
+            return std::toupper(c);
+        });
+
+        if (option == "EX" || option == "PX") {
+            if (i + 1 >= args.size()) {
+                return RespParser::encode_error("ERR syntax error");
+            }
+
+            uint64_t num = 0;
+            try {
+                num = std::stoull(args[i + 1]);
+            } catch (...) {
+                return RespParser::encode_error("ERR value is not an integer or out of range");
+            }
+
+            if (option == "EX") {
+                ttl_ms = num * 1000;
+            } else {
+                ttl_ms = num;
+            }
+            ++i;
+        }
+    }
+
+    store_.set(key, value, ttl_ms);
     return RespParser::encode_simple_string("OK");
 }
 

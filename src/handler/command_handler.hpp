@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 class Store;
 
@@ -14,6 +15,6 @@ class CommandHandler {
   private:
     static std::string handle_ping();
     static std::string handle_echo(std::string_view args);
-    std::string handle_set(const std::string& key, const std::string& value);
+    std::string handle_set(const std::vector<std::string>& args);
     std::string handle_get(const std::string& key);
 };
