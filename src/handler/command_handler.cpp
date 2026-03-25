@@ -48,6 +48,11 @@ std::string CommandHandler::process(std::string_view input) {
             return RespParser::encode_error("ERR wrong number of arguments for 'lpush' command");
         }
         return handle_lpush(args);
+    } else if (cmd == "LLEN") {
+        if (args.size() < 2) {
+            return RespParser::encode_error("ERR wrong number of arguments for 'llen' command");
+        }
+        return RespParser::encode_integer(store_.llen(args[1]));
     } else if (cmd == "LRANGE") {
         if (args.size() < 4) {
             return RespParser::encode_error("ERR wrong number of arguments for 'lrange' command");
