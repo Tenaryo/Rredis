@@ -272,17 +272,14 @@ ProcessResult CommandHandler::handle_lpush_with_blocking(
     const std::vector<std::string>& args,
     std::function<void(int, const std::string&)> send_to_blocked) {
     const std::string& key = args[1];
-    int64_t count = 0;
+    int64_t count = store_.llen(key);
 
     for (size_t i = 2; i < args.size(); ++i) {
         if (blocking_manager_) {
             auto blocked = blocking_manager_->wake_client(key);
             if (blocked) {
-                count = store_.lpush(key, args[i]);
-                auto elements = store_.lpop(key, 1);
-                if (!elements.empty()) {
-                    send_to_blocked(blocked->fd, RespParser::encode_array({key, elements[0]}));
-                }
+                send_to_blocked(blocked->fd, RespParser::encode_array({key, args[i]}));
+                ++count;
                 continue;
             }
         }
