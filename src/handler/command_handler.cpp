@@ -116,6 +116,13 @@ CommandHandler::process_with_fd(int fd,
         }
         return {false, handle_xadd(args)};
     }
+    if (cmd == "XRANGE") {
+        if (args.size() < 4) {
+            return {false,
+                    RespParser::encode_error("ERR wrong number of arguments for 'xrange' command")};
+        }
+        return {false, handle_xrange(args)};
+    }
 
     return {false, RespParser::encode_error("ERR unknown command '" + cmd + "'")};
 }
@@ -311,4 +318,25 @@ std::string CommandHandler::handle_xadd(const std::vector<std::string>& args) {
     }
 
     return RespParser::encode_bulk_string(result);
+}
+
+std::string CommandHandler::handle_xrange(const std::vector<std::string>& args) {
+    const std::string& key = args[1];
+    const std::string& start = args[2];
+    const std::string& end = args[3];
+
+    auto entries = store_.xrange(key, start, end);
+
+    std::string result = "*" + std::to_string(entries.size()) + "\r\n";
+    for (const auto& entry : entries) {
+        result += "*2\r\n";
+        result += RespParser::encode_bulk_string(entry.id);
+        result += "*" + std::to_string(entry.fields.size() * 2) + "\r\n";
+        for (const auto& [field, value] : entry.fields) {
+            result += RespParser::encode_bulk_string(field);
+            result += RespParser::encode_bulk_string(value);
+        }
+    }
+
+    return result;
 }

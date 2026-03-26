@@ -40,6 +40,14 @@ Redis::List* Store::get_or_create_list(const std::string& key) {
     return &std::get<Redis::List>(entry->value);
 }
 
+Redis::Stream* Store::get_stream(const std::string& key) {
+    Entry* entry = find_valid_entry(key);
+    if (!entry || !std::holds_alternative<Redis::Stream>(entry->value)) {
+        return nullptr;
+    }
+    return &std::get<Redis::Stream>(entry->value);
+}
+
 Redis::Stream* Store::get_or_create_stream(const std::string& key) {
     Entry* entry = find_valid_entry(key);
     if (!entry) {
@@ -274,4 +282,37 @@ std::string Store::xadd(const std::string& key,
     stream->push_back(std::move(entry));
 
     return final_id;
+}
+std::vector<Redis::StreamEntry>
+Store::xrange(const std::string& key, const std::string& start, const std::string& end) {
+    std::vector<Redis::StreamEntry> result;
+
+    auto* stream = get_stream(key);
+    if (!stream || stream->empty()) {
+        return result;
+    }
+
+    std::string start_id = start;
+    std::string end_id = end;
+
+    auto start_dash = start.find('-');
+    if (start_dash == std::string::npos) {
+        start_id = start + "-0";
+    }
+
+    auto end_dash = end.find('-');
+    if (end_dash == std::string::npos) {
+        end_id = end + "-9223372036854775807";
+    }
+
+    for (const auto& entry : *stream) {
+        bool gte_start = !compare_entry_id(entry.id, start_id);
+        bool lte_end = !compare_entry_id(end_id, entry.id);
+
+        if (gte_start && lte_end) {
+            result.push_back(entry);
+        }
+    }
+
+    return result;
 }

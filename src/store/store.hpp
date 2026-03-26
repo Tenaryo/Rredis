@@ -37,6 +37,7 @@ class Store {
     Entry* find_valid_entry(const std::string& key);
     Redis::List* get_list(const std::string& key);
     Redis::List* get_or_create_list(const std::string& key);
+    Redis::Stream* get_stream(const std::string& key);
     Redis::Stream* get_or_create_stream(const std::string& key);
     static bool parse_entry_id(const std::string& id, int64_t& timestamp, int64_t& sequence);
     static bool compare_entry_id(const std::string& a, const std::string& b);
@@ -58,6 +59,9 @@ class Store {
     std::string xadd(const std::string& key,
                      const std::string& id,
                      const std::vector<std::pair<std::string, std::string>>& fields);
+
+    std::vector<Redis::StreamEntry>
+    xrange(const std::string& key, const std::string& start, const std::string& end);
 
     std::string get_type(const std::string& key);
 };
