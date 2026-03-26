@@ -41,11 +41,16 @@ void EventLoop::add_fd(int fd, uint32_t events) {
 
 void EventLoop::remove_fd(int fd) { epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr); }
 
-void EventLoop::run(int server_fd, std::function<void(int)> on_data) {
+void EventLoop::run(int server_fd,
+                    std::function<void(int)> on_data,
+                    std::function<std::chrono::milliseconds()> get_timeout) {
     struct epoll_event events[MAX_EVENTS];
 
-    while (true) {
-        int n = epoll_wait(epoll_fd_, events, MAX_EVENTS, -1);
+    while (running_) {
+        auto timeout_ms = get_timeout();
+        int timeout = timeout_ms.count() < 0 ? -1 : static_cast<int>(timeout_ms.count());
+
+        int n = epoll_wait(epoll_fd_, events, MAX_EVENTS, timeout);
         if (n < 0) {
             if (errno == EINTR) {
                 continue;
@@ -56,11 +61,7 @@ void EventLoop::run(int server_fd, std::function<void(int)> on_data) {
 
         for (int i = 0; i < n; ++i) {
             int fd = events[i].data.fd;
-            if (fd == server_fd) {
-                on_data(fd);
-            } else {
-                on_data(fd);
-            }
+            on_data(fd);
         }
     }
 }

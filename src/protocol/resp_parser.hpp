@@ -14,4 +14,5 @@ class RespParser {
     static std::string encode_integer(int64_t n);
     static std::string encode_array(const std::vector<std::string>& elements);
     static std::string encode_error(std::string_view s);
+    static std::string encode_null_array();
 };

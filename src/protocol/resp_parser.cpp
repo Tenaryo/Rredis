@@ -72,3 +72,5 @@ std::string RespParser::encode_array(const std::vector<std::string>& elements) {
 }
 
 std::string RespParser::encode_error(std::string_view s) { return "-" + std::string(s) + "\r\n"; }
+
+std::string RespParser::encode_null_array() { return "*-1\r\n"; }

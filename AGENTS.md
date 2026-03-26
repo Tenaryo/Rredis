@@ -10,3 +10,4 @@
 8. Be critical, able to challenge user's idea if his plan is not optimal.
 9. After you fully complete your work, use clang-format to format your code.
 10. Keep the main function clean and clear.
+11. Don't git commit for the user, user will commit himself.

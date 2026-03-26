@@ -1,6 +1,8 @@
+#include "block_manager/blocking_manager.hpp"
 #include "connection/connection.hpp"
 #include "event_loop/event_loop.hpp"
 #include "handler/command_handler.hpp"
+#include "protocol/resp_parser.hpp"
 #include "server/server.hpp"
 #include "store/store.hpp"
 #include <iostream>
@@ -11,54 +13,62 @@ int main() {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
 
-    constexpr int PORT = 6379;
-
-    Server server(PORT);
-    if (server.fd() < 0) {
-        std::cerr << "Failed to start server\n";
-        return 1;
-    }
-
-    std::cout << "Waiting for clients to connect...\n";
-
+    Server server(6379);
     EventLoop event_loop;
-    if (event_loop.fd() < 0) {
-        std::cerr << "Failed to create event loop\n";
-        return 1;
-    }
-
     event_loop.add_fd(server.fd());
 
     Store store;
     CommandHandler handler(store);
+    BlockingManager blocking_manager;
+    handler.set_blocking_manager(&blocking_manager);
 
     std::unordered_map<int, std::unique_ptr<Connection>> connections;
 
-    event_loop.run(server.fd(), [&](int fd) {
-        if (fd == server.fd()) {
-            auto client_result = server.accept_connection();
-            if (client_result) {
-                int client_fd = *client_result;
-                std::cout << "Client connected\n";
-                connections[client_fd] = std::make_unique<Connection>(client_fd);
-                event_loop.add_fd(client_fd);
+    auto get_timeout = [&]() -> std::chrono::milliseconds {
+        auto expired = blocking_manager.get_expired_clients();
+        for (int fd : expired) {
+            if (auto it = connections.find(fd); it != connections.end()) {
+                auto response = RespParser::encode_null_array();
+                it->second->send_data(response.c_str(), response.size());
             }
-        } else {
-            auto it = connections.find(fd);
-            if (it != connections.end()) {
+        }
+        auto next = blocking_manager.get_next_deadline();
+        if (!next)
+            return std::chrono::milliseconds(-1);
+        auto now = std::chrono::steady_clock::now();
+        return *next <= now ? std::chrono::milliseconds(0)
+                            : std::chrono::duration_cast<std::chrono::milliseconds>(*next - now);
+    };
+
+    auto send_to_blocked = [&](int fd, const std::string& response) {
+        if (auto it = connections.find(fd); it != connections.end()) {
+            it->second->send_data(response.c_str(), response.size());
+        }
+    };
+
+    event_loop.run(
+        server.fd(),
+        [&](int fd) {
+            if (fd == server.fd()) {
+                if (auto client = server.accept_connection()) {
+                    connections[*client] = std::make_unique<Connection>(*client);
+                    event_loop.add_fd(*client);
+                }
+            } else if (auto it = connections.find(fd); it != connections.end()) {
                 Connection& conn = *it->second;
-                auto data = conn.handle_read();
-                if (data) {
-                    std::string response = handler.process(*data);
-                    conn.send_data(response.c_str(), response.size());
+                if (auto data = conn.handle_read()) {
+                    auto result = handler.process_with_fd(fd, *data, send_to_blocked);
+                    if (!result.should_block) {
+                        conn.send_data(result.response.c_str(), result.response.size());
+                    }
                 } else {
-                    std::cout << "Client disconnected\n";
+                    blocking_manager.unblock_client(fd);
                     event_loop.remove_fd(fd);
                     connections.erase(it);
                 }
             }
-        }
-    });
+        },
+        get_timeout);
 
     return 0;
 }
