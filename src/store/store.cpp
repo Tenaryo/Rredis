@@ -208,7 +208,7 @@ std::string Store::xadd(const std::string& key,
 
     if (!stream->empty()) {
         const std::string& last_id = stream->back().id;
-        if (!compare_entry_id(id, last_id)) {
+        if (!compare_entry_id(last_id, id)) {
             return "ERR The ID specified in XADD is equal or smaller than the target stream top "
                    "item";
         }
