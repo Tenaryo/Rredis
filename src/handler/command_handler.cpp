@@ -114,7 +114,7 @@ CommandHandler::process_with_fd(int fd,
             return {false,
                     RespParser::encode_error("ERR wrong number of arguments for 'xadd' command")};
         }
-        return {false, handle_xadd(args)};
+        return handle_xadd_with_blocking(args, send_to_blocked);
     }
     if (cmd == "XRANGE") {
         if (args.size() < 4) {
@@ -128,7 +128,7 @@ CommandHandler::process_with_fd(int fd,
             return {false,
                     RespParser::encode_error("ERR wrong number of arguments for 'xread' command")};
         }
-        return {false, handle_xread(args)};
+        return handle_xread_with_blocking(fd, args);
     }
 
     return {false, RespParser::encode_error("ERR unknown command '" + cmd + "'")};
@@ -397,4 +397,144 @@ std::string CommandHandler::handle_xread(const std::vector<std::string>& args) {
     }
 
     return result;
+}
+
+ProcessResult CommandHandler::handle_xread_with_blocking(int fd,
+                                                         const std::vector<std::string>& args) {
+    bool has_block = false;
+    int64_t timeout_ms = 0;
+    size_t start_idx = 1;
+
+    if (args.size() > start_idx) {
+        std::string arg = args[start_idx];
+        std::transform(
+            arg.begin(), arg.end(), arg.begin(), [](unsigned char c) { return std::toupper(c); });
+        if (arg == "BLOCK") {
+            has_block = true;
+            if (start_idx + 1 >= args.size()) {
+                return {false, RespParser::encode_error("ERR syntax error")};
+            }
+            try {
+                timeout_ms = std::stoll(args[start_idx + 1]);
+            } catch (...) {
+                return {false,
+                        RespParser::encode_error("ERR value is not an integer or out of range")};
+            }
+            start_idx += 2;
+        }
+    }
+
+    size_t streams_idx = 0;
+    for (size_t i = start_idx; i < args.size(); ++i) {
+        std::string arg = args[i];
+        std::transform(
+            arg.begin(), arg.end(), arg.begin(), [](unsigned char c) { return std::toupper(c); });
+        if (arg == "STREAMS") {
+            streams_idx = i;
+            break;
+        }
+    }
+
+    if (streams_idx == 0) {
+        return {false, RespParser::encode_error("ERR syntax error")};
+    }
+
+    size_t num_pairs = args.size() - streams_idx - 1;
+    if (num_pairs == 0 || num_pairs % 2 != 0) {
+        return {false,
+                RespParser::encode_error("ERR wrong number of arguments for 'xread' command")};
+    }
+
+    size_t num_streams = num_pairs / 2;
+    if (has_block && num_streams != 1) {
+        return {false, RespParser::encode_error("ERR BLOCK only supports single stream")};
+    }
+
+    std::vector<std::pair<std::string, std::vector<Redis::StreamEntry>>> results;
+
+    for (size_t i = 0; i < num_streams; ++i) {
+        const std::string& key = args[streams_idx + 1 + i];
+        const std::string& id = args[streams_idx + 1 + num_streams + i];
+
+        auto entries = store_.xread(key, id);
+        results.emplace_back(key, std::move(entries));
+    }
+
+    bool has_data = false;
+    for (const auto& [key, entries] : results) {
+        if (!entries.empty()) {
+            has_data = true;
+            break;
+        }
+    }
+
+    if (has_data || !has_block) {
+        std::string result = "*" + std::to_string(results.size()) + "\r\n";
+        for (const auto& [key, entries] : results) {
+            result += "*2\r\n";
+            result += RespParser::encode_bulk_string(key);
+            result += "*" + std::to_string(entries.size()) + "\r\n";
+            for (const auto& entry : entries) {
+                result += "*2\r\n";
+                result += RespParser::encode_bulk_string(entry.id);
+                result += "*" + std::to_string(entry.fields.size() * 2) + "\r\n";
+                for (const auto& [field, value] : entry.fields) {
+                    result += RespParser::encode_bulk_string(field);
+                    result += RespParser::encode_bulk_string(value);
+                }
+            }
+        }
+
+        return {false, result};
+    }
+
+    if (blocking_manager_) {
+        const std::string& key = args[streams_idx + 1];
+        const std::string& id = args[streams_idx + 1 + num_streams];
+        blocking_manager_->block_client_for_stream(
+            fd, key, id, std::chrono::milliseconds(timeout_ms));
+        return {true, ""};
+    }
+
+    return {false, RespParser::encode_error("ERR blocking not available")};
+}
+
+ProcessResult CommandHandler::handle_xadd_with_blocking(
+    const std::vector<std::string>& args,
+    std::function<void(int, const std::string&)> send_to_blocked) {
+    const std::string& key = args[1];
+    const std::string& id = args[2];
+
+    std::vector<std::pair<std::string, std::string>> fields;
+    for (size_t i = 3; i < args.size(); i += 2) {
+        fields.emplace_back(args[i], args[i + 1]);
+    }
+
+    std::string new_id = store_.xadd(key, id, fields);
+
+    if (new_id.starts_with("ERR")) {
+        return {false, RespParser::encode_error(new_id)};
+    }
+
+    if (blocking_manager_) {
+        while (auto blocked = blocking_manager_->wake_client_for_stream(key, new_id)) {
+            auto entries = store_.xread(key, blocked->last_id);
+            std::string response = "*1\r\n";
+            response += "*2\r\n";
+            response += RespParser::encode_bulk_string(key);
+            response += "*" + std::to_string(entries.size()) + "\r\n";
+            for (const auto& entry : entries) {
+                response += "*2\r\n";
+                response += RespParser::encode_bulk_string(entry.id);
+                response += "*" + std::to_string(entry.fields.size() * 2) + "\r\n";
+                for (const auto& [field, value] : entry.fields) {
+                    response += RespParser::encode_bulk_string(field);
+                    response += RespParser::encode_bulk_string(value);
+                }
+            }
+            send_to_blocked(blocked->fd, response);
+        }
+    }
+
+    return {false, RespParser::encode_bulk_string(new_id)};
 }

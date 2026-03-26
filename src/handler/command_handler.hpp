@@ -38,6 +38,10 @@ class CommandHandler {
     std::string handle_xadd(const std::vector<std::string>& args);
     std::string handle_xrange(const std::vector<std::string>& args);
     std::string handle_xread(const std::vector<std::string>& args);
+    ProcessResult handle_xread_with_blocking(int fd, const std::vector<std::string>& args);
+    ProcessResult
+    handle_xadd_with_blocking(const std::vector<std::string>& args,
+                              std::function<void(int, const std::string&)> send_to_blocked);
 
     ProcessResult handle_blpop(int fd, const std::vector<std::string>& args);
     ProcessResult

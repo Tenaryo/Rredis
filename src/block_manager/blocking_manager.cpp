@@ -1,10 +1,56 @@
 #include "blocking_manager.hpp"
+#include <algorithm>
+
+bool BlockingManager::parse_entry_id(const std::string& id, int64_t& timestamp, int64_t& sequence) {
+    auto dash_pos = id.find('-');
+    if (dash_pos == std::string::npos) {
+        return false;
+    }
+
+    try {
+        size_t pos;
+        timestamp = std::stoll(id.substr(0, dash_pos), &pos);
+        if (pos != dash_pos) {
+            return false;
+        }
+        sequence = std::stoll(id.substr(dash_pos + 1), &pos);
+        if (pos != id.length() - dash_pos - 1) {
+            return false;
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool BlockingManager::compare_entry_id(const std::string& a, const std::string& b) {
+    int64_t ts_a, seq_a, ts_b, seq_b;
+    if (!parse_entry_id(a, ts_a, seq_a) || !parse_entry_id(b, ts_b, seq_b)) {
+        return false;
+    }
+    if (ts_a != ts_b) {
+        return ts_a < ts_b;
+    }
+    return seq_a < seq_b;
+}
 
 void BlockingManager::block_client(int fd, std::string key, std::chrono::milliseconds timeout) {
     auto deadline = timeout.count() == 0 ? std::chrono::steady_clock::time_point::max()
                                          : std::chrono::steady_clock::now() + timeout;
 
-    BlockedClient client{fd, std::move(key), deadline};
+    BlockedClient client{fd, std::move(key), deadline, ""};
+    blocked_clients_[client.key].push_back(client);
+    fd_to_client_[fd] = &blocked_clients_[client.key].back();
+}
+
+void BlockingManager::block_client_for_stream(int fd,
+                                              std::string key,
+                                              std::string last_id,
+                                              std::chrono::milliseconds timeout) {
+    auto deadline = timeout.count() == 0 ? std::chrono::steady_clock::time_point::max()
+                                         : std::chrono::steady_clock::now() + timeout;
+
+    BlockedClient client{fd, std::move(key), deadline, std::move(last_id)};
     blocked_clients_[client.key].push_back(client);
     fd_to_client_[fd] = &blocked_clients_[client.key].back();
 }
@@ -24,6 +70,30 @@ std::optional<BlockedClient> BlockingManager::wake_client(const std::string& key
     }
 
     return client;
+}
+
+std::optional<BlockedClient>
+BlockingManager::wake_client_for_stream(const std::string& key, const std::string& new_entry_id) {
+    auto it = blocked_clients_.find(key);
+    if (it == blocked_clients_.end() || it->second.empty()) {
+        return std::nullopt;
+    }
+
+    for (auto client_it = it->second.begin(); client_it != it->second.end(); ++client_it) {
+        if (compare_entry_id(client_it->last_id, new_entry_id)) {
+            BlockedClient client = std::move(*client_it);
+            it->second.erase(client_it);
+            fd_to_client_.erase(client.fd);
+
+            if (it->second.empty()) {
+                blocked_clients_.erase(it);
+            }
+
+            return client;
+        }
+    }
+
+    return std::nullopt;
 }
 
 std::vector<int> BlockingManager::get_expired_clients() {
