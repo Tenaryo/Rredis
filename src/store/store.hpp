@@ -65,5 +65,7 @@ class Store {
 
     std::vector<Redis::StreamEntry> xread(const std::string& key, const std::string& id);
 
+    std::optional<std::string> get_stream_max_id(const std::string& key);
+
     std::string get_type(const std::string& key);
 };

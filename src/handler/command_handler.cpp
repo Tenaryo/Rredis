@@ -454,7 +454,13 @@ ProcessResult CommandHandler::handle_xread_with_blocking(int fd,
 
     for (size_t i = 0; i < num_streams; ++i) {
         const std::string& key = args[streams_idx + 1 + i];
-        const std::string& id = args[streams_idx + 1 + num_streams + i];
+        const std::string& id_arg = args[streams_idx + 1 + num_streams + i];
+
+        std::string id = id_arg;
+        if (id_arg == "$") {
+            auto max_id = store_.get_stream_max_id(key);
+            id = max_id.value_or("0-0");
+        }
 
         auto entries = store_.xread(key, id);
         results.emplace_back(key, std::move(entries));
@@ -490,7 +496,14 @@ ProcessResult CommandHandler::handle_xread_with_blocking(int fd,
 
     if (blocking_manager_) {
         const std::string& key = args[streams_idx + 1];
-        const std::string& id = args[streams_idx + 1 + num_streams];
+        const std::string& id_arg = args[streams_idx + 1 + num_streams];
+
+        std::string id = id_arg;
+        if (id_arg == "$") {
+            auto max_id = store_.get_stream_max_id(key);
+            id = max_id.value_or("0-0");
+        }
+
         blocking_manager_->block_client_for_stream(
             fd, key, id, std::chrono::milliseconds(timeout_ms));
         return {true, ""};

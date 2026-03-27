@@ -339,3 +339,12 @@ std::vector<Redis::StreamEntry> Store::xread(const std::string& key, const std::
 
     return result;
 }
+
+std::optional<std::string> Store::get_stream_max_id(const std::string& key) {
+    auto* stream = get_stream(key);
+    if (!stream || stream->empty()) {
+        return std::nullopt;
+    }
+
+    return stream->back().id;
+}
