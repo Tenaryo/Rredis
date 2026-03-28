@@ -33,6 +33,9 @@ CommandHandler::process_with_fd(int fd,
     if (cmd == "PING") {
         return {false, handle_ping()};
     }
+    if (cmd == "MULTI") {
+        return {false, RespParser::encode_simple_string("OK")};
+    }
     if (cmd == "ECHO") {
         if (args.size() < 2) {
             return {false,
