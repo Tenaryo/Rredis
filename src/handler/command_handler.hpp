@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 class BlockingManager;
@@ -14,9 +15,15 @@ struct ProcessResult {
     std::string response;
 };
 
+struct TransactionState {
+    bool in_multi{false};
+    std::vector<std::vector<std::string>> queued_commands;
+};
+
 class CommandHandler {
     Store& store_;
     BlockingManager* blocking_manager_{nullptr};
+    std::unordered_map<int, TransactionState> transactions_;
   public:
     explicit CommandHandler(Store& store);
 
@@ -27,6 +34,10 @@ class CommandHandler {
                                   std::string_view input,
                                   std::function<void(int, const std::string&)> send_to_blocked);
   private:
+    ProcessResult execute_command(const std::vector<std::string>& args,
+                                  int fd,
+                                  std::function<void(int, const std::string&)> send_to_blocked);
+
     static std::string handle_ping();
     static std::string handle_echo(std::string_view args);
     std::string handle_set(const std::vector<std::string>& args);

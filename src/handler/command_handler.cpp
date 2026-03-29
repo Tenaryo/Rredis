@@ -30,11 +30,46 @@ CommandHandler::process_with_fd(int fd,
     std::transform(
         cmd.begin(), cmd.end(), cmd.begin(), [](unsigned char c) { return std::toupper(c); });
 
+    if (cmd == "MULTI") {
+        transactions_[fd].in_multi = true;
+        return {false, RespParser::encode_simple_string("OK")};
+    }
+
+    if (cmd == "EXEC") {
+        auto it = transactions_.find(fd);
+        if (it == transactions_.end() || !it->second.in_multi) {
+            return {false, RespParser::encode_error("ERR EXEC without MULTI")};
+        }
+
+        auto& tx = it->second;
+        std::string result = "*" + std::to_string(tx.queued_commands.size()) + "\r\n";
+        for (const auto& queued_args : tx.queued_commands) {
+            auto cmd_result = execute_command(queued_args, fd, send_to_blocked);
+            result += cmd_result.response;
+        }
+        transactions_.erase(it);
+        return {false, result};
+    }
+
+    auto it = transactions_.find(fd);
+    if (it != transactions_.end() && it->second.in_multi) {
+        it->second.queued_commands.push_back(args);
+        return {false, RespParser::encode_simple_string("QUEUED")};
+    }
+
+    return execute_command(args, fd, send_to_blocked);
+}
+
+ProcessResult
+CommandHandler::execute_command(const std::vector<std::string>& args,
+                                int fd,
+                                std::function<void(int, const std::string&)> send_to_blocked) {
+    std::string cmd = args[0];
+    std::transform(
+        cmd.begin(), cmd.end(), cmd.begin(), [](unsigned char c) { return std::toupper(c); });
+
     if (cmd == "PING") {
         return {false, handle_ping()};
-    }
-    if (cmd == "MULTI") {
-        return {false, RespParser::encode_simple_string("OK")};
     }
     if (cmd == "ECHO") {
         if (args.size() < 2) {
