@@ -18,8 +18,11 @@ int main(int argc, char* argv[]) {
     EventLoop event_loop;
     event_loop.add_fd(server.fd());
 
+    ServerConfig config;
+    config.replicaof = parse_replicaof(argc, argv);
+
     Store store;
-    CommandHandler handler(store);
+    CommandHandler handler(store, config);
     BlockingManager blocking_manager;
     handler.set_blocking_manager(&blocking_manager);
 

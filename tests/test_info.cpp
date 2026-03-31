@@ -1,5 +1,6 @@
 #include "../src/handler/command_handler.hpp"
 #include "../src/protocol/resp_parser.hpp"
+#include "../src/server/server_config.hpp"
 #include "../src/store/store.hpp"
 #include <cassert>
 #include <iostream>
@@ -7,7 +8,8 @@
 
 void test_info_replication_returns_role_master() {
     Store store;
-    CommandHandler handler(store);
+    ServerConfig config;
+    CommandHandler handler(store, config);
 
     std::string input = "*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n";
     auto response = handler.process(input);
@@ -26,7 +28,8 @@ void test_info_replication_returns_role_master() {
 
 void test_info_without_args_returns_replication_section() {
     Store store;
-    CommandHandler handler(store);
+    ServerConfig config;
+    CommandHandler handler(store, config);
 
     std::string input = "*1\r\n$4\r\nINFO\r\n";
     auto response = handler.process(input);
@@ -46,8 +49,9 @@ void test_info_without_args_returns_replication_section() {
 
 void test_info_replication_returns_role_slave_when_configured() {
     Store store;
-    CommandHandler handler(store);
-    handler.set_role("slave");
+    ServerConfig config;
+    config.replicaof = ReplicaOfConfig{"localhost", 6379};
+    CommandHandler handler(store, config);
 
     std::string input = "*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n";
     auto response = handler.process(input);

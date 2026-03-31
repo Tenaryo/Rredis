@@ -5,7 +5,8 @@
 #include <algorithm>
 #include <cctype>
 
-CommandHandler::CommandHandler(Store& store) : store_(store) {}
+CommandHandler::CommandHandler(Store& store, const ServerConfig& config)
+    : store_(store), config_(config) {}
 
 std::string CommandHandler::process(std::string_view input) {
     auto result = process_with_fd(-1, input, nullptr);
@@ -305,7 +306,9 @@ std::string CommandHandler::handle_lrange(const std::vector<std::string>& args) 
 }
 
 std::string CommandHandler::handle_info(const std::vector<std::string>& args) {
-    std::string info = "# Replication\r\nrole:master\r\n";
+    std::string info = "# Replication\r\nrole:";
+    info += config_.is_replica() ? "slave" : "master";
+    info += "\r\n";
     return RespParser::encode_bulk_string(info);
 }
 

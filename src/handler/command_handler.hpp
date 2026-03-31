@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "server/server_config.hpp"
+
 class BlockingManager;
 class Store;
 
@@ -22,10 +24,11 @@ struct TransactionState {
 
 class CommandHandler {
     Store& store_;
+    ServerConfig config_;
     BlockingManager* blocking_manager_{nullptr};
     std::unordered_map<int, TransactionState> transactions_;
   public:
-    explicit CommandHandler(Store& store);
+    explicit CommandHandler(Store& store, const ServerConfig& config = {});
 
     void set_blocking_manager(BlockingManager* manager) { blocking_manager_ = manager; }
 
