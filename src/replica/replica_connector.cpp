@@ -1,7 +1,8 @@
 #include "replica_connector.hpp"
 #include "protocol/resp_parser.hpp"
-#include <arpa/inet.h>
 #include <cstring>
+#include <memory>
+#include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -31,21 +32,21 @@ ReplicaConnector& ReplicaConnector::operator=(ReplicaConnector&& other) noexcept
 }
 
 bool ReplicaConnector::connect_to_master() {
-    fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    struct addrinfo hints {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo* result = nullptr;
+    if (::getaddrinfo(host_.c_str(), std::to_string(port_).c_str(), &hints, &result) != 0)
+        return false;
+
+    auto guard = std::unique_ptr<addrinfo, decltype(&freeaddrinfo)>(result, &freeaddrinfo);
+
+    fd_ = ::socket(result->ai_family, result->ai_socktype, result->ai_protocol);
     if (fd_ < 0)
         return false;
 
-    struct sockaddr_in addr {};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port_);
-
-    if (::inet_pton(AF_INET, host_.c_str(), &addr.sin_addr) <= 0) {
-        ::close(fd_);
-        fd_ = -1;
-        return false;
-    }
-
-    if (::connect(fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+    if (::connect(fd_, result->ai_addr, result->ai_addrlen) < 0) {
         ::close(fd_);
         fd_ = -1;
         return false;
