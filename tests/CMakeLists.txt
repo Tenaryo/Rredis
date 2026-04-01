@@ -7,6 +7,7 @@ foreach(test_source ${TEST_SOURCES})
         ${CMAKE_SOURCE_DIR}/src/block_manager/blocking_manager.cpp
         ${CMAKE_SOURCE_DIR}/src/handler/command_handler.cpp
         ${CMAKE_SOURCE_DIR}/src/protocol/resp_parser.cpp
+        ${CMAKE_SOURCE_DIR}/src/replica/replica_connector.cpp
         ${CMAKE_SOURCE_DIR}/src/store/store.cpp
     )
     target_link_libraries(${test_name} PRIVATE Threads::Threads)
