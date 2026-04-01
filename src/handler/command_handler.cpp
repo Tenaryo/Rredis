@@ -300,6 +300,10 @@ std::string CommandHandler::handle_lrange(const std::vector<std::string>& args) 
 std::string CommandHandler::handle_info(const std::vector<std::string>& /* args */) {
     std::string info = "# Replication\r\nrole:";
     info += config_.is_replica() ? "slave" : "master";
+    info += "\r\nmaster_replid:";
+    info += config_.master_replid;
+    info += "\r\nmaster_repl_offset:";
+    info += std::to_string(config_.master_repl_offset);
     info += "\r\n";
     return RespParser::encode_bulk_string(info);
 }
