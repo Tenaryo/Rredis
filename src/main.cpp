@@ -4,6 +4,7 @@
 #include "event_loop/event_loop.hpp"
 #include "handler/command_handler.hpp"
 #include "protocol/resp_parser.hpp"
+#include "replica/replica_connector.hpp"
 #include "server/server.hpp"
 #include "store/store.hpp"
 #include <iostream>
@@ -30,6 +31,14 @@ int main(int argc, char* argv[]) {
     CommandHandler handler(store, config);
     BlockingManager blocking_manager;
     handler.set_blocking_manager(&blocking_manager);
+
+    if (config.is_replica()) {
+        ReplicaConnector connector(config.replicaof->host, config.replicaof->port);
+        if (!connector.send_ping()) {
+            std::cerr << "Failed to complete PING handshake with master\n";
+            return 1;
+        }
+    }
 
     std::unordered_map<int, std::unique_ptr<Connection>> connections;
 

@@ -59,14 +59,18 @@ bool ReplicaConnector::send_ping() {
         return false;
 
     auto ping = RespParser::encode_array({"PING"});
-    ssize_t sent = ::send(fd_, ping.data(), ping.size(), MSG_NOSIGNAL);
-    if (sent != static_cast<ssize_t>(ping.size()))
-        return false;
+    size_t sent = 0;
+    while (sent < ping.size()) {
+        auto n = ::send(fd_, ping.data() + sent, ping.size() - sent, MSG_NOSIGNAL);
+        if (n <= 0)
+            return false;
+        sent += static_cast<size_t>(n);
+    }
 
     char buf[256]{};
-    ssize_t n = ::read(fd_, buf, sizeof(buf));
+    auto n = ::read(fd_, buf, sizeof(buf));
     if (n <= 0)
         return false;
 
-    return std::string_view(buf, n) == "+PONG\r\n";
+    return std::string_view(buf, static_cast<size_t>(n)) == "+PONG\r\n";
 }
