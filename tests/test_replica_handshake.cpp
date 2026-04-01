@@ -216,6 +216,48 @@ void test_master_handles_replconf_capa() {
     std::cout << "\u2713 Test passed: master responds +OK to REPLCONF capa psync2\n";
 }
 
+void test_replica_sends_psync() {
+    MockMaster master;
+    int port = master.port();
+    int replica_port = 6380;
+
+    MockMaster::MultiStepResult server_result;
+
+    std::thread server_thread([&]() {
+        server_result = master.run_multi_step_handshake(
+            {"+PONG\r\n",
+             "+OK\r\n",
+             "+OK\r\n",
+             "+FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0\r\n"});
+    });
+
+    ReplicaConnector connector("127.0.0.1", port);
+    assert(connector.send_ping());
+    assert(connector.send_replconf(replica_port));
+    assert(connector.send_psync());
+
+    server_thread.join();
+
+    assert(server_result.accepted);
+    assert(server_result.messages.size() == 4);
+    assert(server_result.messages[3] == "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n");
+
+    std::cout << "\u2713 Test passed: replica sends PSYNC ? -1 correctly\n";
+}
+
+void test_master_handles_psync() {
+    Store store;
+    ServerConfig config;
+    CommandHandler handler(store, config);
+
+    std::string input = "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n";
+    auto response = handler.process(input);
+
+    assert(response == "+FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0\r\n");
+
+    std::cout << "\u2713 Test passed: master responds FULLRESYNC to PSYNC\n";
+}
+
 int main() {
     std::cout << "Running replica handshake tests...\n\n";
 
@@ -223,8 +265,10 @@ int main() {
     test_replica_ping_handshake_with_localhost();
     test_replica_sends_replconf_listening_port();
     test_replica_sends_replconf_capa();
+    test_replica_sends_psync();
     test_master_handles_replconf_listening_port();
     test_master_handles_replconf_capa();
+    test_master_handles_psync();
 
     std::cout << "\n\u2713 All tests passed!\n";
     return 0;
