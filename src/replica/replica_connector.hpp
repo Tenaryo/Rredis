@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -25,4 +26,5 @@ class ReplicaConnector {
     bool send_ping();
     bool send_replconf(int listening_port);
     bool send_psync();
+    std::optional<std::string> receive_rdb();
 };

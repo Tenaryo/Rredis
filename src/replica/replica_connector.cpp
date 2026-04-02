@@ -94,3 +94,5 @@ bool ReplicaConnector::send_psync() {
     return send_and_check({"PSYNC", "?", "-1"},
                           [](std::string_view resp) { return resp.starts_with("+FULLRESYNC"); });
 }
+
+std::optional<std::string> ReplicaConnector::receive_rdb() { return std::nullopt; }
