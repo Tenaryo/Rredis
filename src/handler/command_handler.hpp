@@ -15,6 +15,11 @@ class Store;
 struct ProcessResult {
     bool should_block{false};
     std::string response;
+    bool is_replica_handshake{false};
+    std::vector<std::string> propagate_args;
+
+    ProcessResult() = default;
+    ProcessResult(bool block, std::string resp) : should_block(block), response(std::move(resp)) {}
 };
 
 struct TransactionState {

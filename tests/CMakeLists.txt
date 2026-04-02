@@ -5,6 +5,7 @@ foreach(test_source ${TEST_SOURCES})
     add_executable(${test_name}
         ${test_source}
         ${CMAKE_SOURCE_DIR}/src/block_manager/blocking_manager.cpp
+        ${CMAKE_SOURCE_DIR}/src/connection/connection.cpp
         ${CMAKE_SOURCE_DIR}/src/handler/command_handler.cpp
         ${CMAKE_SOURCE_DIR}/src/protocol/resp_parser.cpp
         ${CMAKE_SOURCE_DIR}/src/replica/replica_connector.cpp
