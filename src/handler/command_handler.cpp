@@ -3,18 +3,27 @@
 #include "protocol/resp_parser.hpp"
 #include "store/store.hpp"
 #include "util/parse.hpp"
-#include <algorithm>
 #include <array>
-#include <cctype>
 #include <string_view>
 
 namespace {
+using namespace std::string_view_literals;
+
 bool is_write_command(std::string_view cmd) {
-    using namespace std::string_view_literals;
     static constexpr auto kWriteCommands =
         std::array{"SET"sv, "DEL"sv, "INCR"sv, "RPUSH"sv, "LPUSH"sv, "LPOP"sv, "XADD"sv};
     return std::ranges::find(kWriteCommands, cmd) != kWriteCommands.end();
 }
+
+static constexpr std::array<char, 88> kEmptyRdb{
+    {'R',    'E',    'D',    'I',    'S',    '0',    '0',    '1',    '1',    '\xfa', '\x09',
+     'r',    'e',    'd',    'i',    's',    '-',    'v',    'e',    'r',    '\x05', '7',
+     '.',    '2',    '.',    '0',    '\xfa', '\x0a', 'r',    'e',    'd',    'i',    's',
+     '-',    'b',    'i',    't',    's',    '\xc0', '\x40', '\xfa', '\x05', 'c',    't',
+     'i',    'm',    'e',    '\xc2', '\x6d', '\x08', '\xbc', '\x65', '\xfa', '\x08', 'u',
+     's',    'e',    'd',    '-',    'm',    'e',    'm',    '\xc2', '\xb0', '\xc4', '\x10',
+     '\x00', '\xfa', '\x08', 'a',    'o',    'f',    '-',    'b',    'a',    's',    'e',
+     '\xc0', '\x00', '\xff', '\xf0', '\x6e', '\x3b', '\xfe', '\xc0', '\xff', '\x5a', '\xa2'}};
 } // namespace
 
 CommandHandler::CommandHandler(Store& store, const ServerConfig& config)
@@ -40,8 +49,7 @@ CommandHandler::process_with_fd(int fd,
     }
 
     std::string& cmd = args[0];
-    std::transform(
-        cmd.begin(), cmd.end(), cmd.begin(), [](unsigned char c) { return std::toupper(c); });
+    cmd = to_upper(std::move(cmd));
 
     if (cmd == "MULTI") {
         transactions_[fd].in_multi = true;
@@ -55,13 +63,14 @@ CommandHandler::process_with_fd(int fd,
         }
 
         auto& tx = it->second;
-        std::string result = "*" + std::to_string(tx.queued_commands.size()) + "\r\n";
+        std::vector<std::string> results;
+        results.reserve(tx.queued_commands.size());
         for (const auto& queued_args : tx.queued_commands) {
             auto cmd_result = execute_command(queued_args, fd, send_to_blocked);
-            result += cmd_result.response;
+            results.push_back(std::move(cmd_result.response));
         }
         transactions_.erase(it);
-        return {false, result};
+        return {false, RespParser::encode_raw_array(std::move(results))};
     }
 
     if (cmd == "DISCARD") {
@@ -206,17 +215,6 @@ CommandHandler::execute_command(const std::vector<std::string>& args,
         return {false, RespParser::encode_simple_string("OK")};
     }
     if (cmd == "PSYNC") {
-        static constexpr std::array<char, 88> kEmptyRdb{
-            {'R',    'E',    'D',    'I',    'S',    '0',    '0',    '1',    '1',    '\xfa',
-             '\x09', 'r',    'e',    'd',    'i',    's',    '-',    'v',    'e',    'r',
-             '\x05', '7',    '.',    '2',    '.',    '0',    '\xfa', '\x0a', 'r',    'e',
-             'd',    'i',    's',    '-',    'b',    'i',    't',    's',    '\xc0', '\x40',
-             '\xfa', '\x05', 'c',    't',    'i',    'm',    'e',    '\xc2', '\x6d', '\x08',
-             '\xbc', '\x65', '\xfa', '\x08', 'u',    's',    'e',    'd',    '-',    'm',
-             'e',    'm',    '\xc2', '\xb0', '\xc4', '\x10', '\x00', '\xfa', '\x08', 'a',
-             'o',    'f',    '-',    'b',    'a',    's',    'e',    '\xc0', '\x00', '\xff',
-             '\xf0', '\x6e', '\x3b', '\xfe', '\xc0', '\xff', '\x5a', '\xa2'}};
-
         auto response = "+FULLRESYNC " + config_.master_replid + " " +
                         std::to_string(config_.master_repl_offset) + "\r\n";
         response += "$88\r\n";
@@ -242,10 +240,7 @@ std::string CommandHandler::handle_set(const std::vector<std::string>& args) {
     std::optional<uint64_t> ttl_ms;
 
     for (size_t i = 3; i < args.size(); ++i) {
-        std::string option = args[i];
-        std::transform(option.begin(), option.end(), option.begin(), [](unsigned char c) {
-            return std::toupper(c);
-        });
+        auto option = to_upper(args[i]);
 
         if (option == "EX" || option == "PX") {
             if (i + 1 >= args.size()) {
@@ -336,13 +331,10 @@ std::string CommandHandler::handle_lrange(const std::vector<std::string>& args) 
 }
 
 std::string CommandHandler::handle_info(const std::vector<std::string>& /* args */) {
-    std::string info = "# Replication\r\nrole:";
-    info += config_.is_replica() ? "slave" : "master";
-    info += "\r\nmaster_replid:";
-    info += config_.master_replid;
-    info += "\r\nmaster_repl_offset:";
-    info += std::to_string(config_.master_repl_offset);
-    info += "\r\n";
+    auto role = config_.is_replica() ? "slave" : "master";
+    auto info = "# Replication\r\nrole:" + std::string(role) +
+                "\r\nmaster_replid:" + config_.master_replid +
+                "\r\nmaster_repl_offset:" + std::to_string(config_.master_repl_offset) + "\r\n";
     return RespParser::encode_bulk_string(info);
 }
 
@@ -440,28 +432,13 @@ std::string CommandHandler::handle_xrange(const std::vector<std::string>& args) 
     const std::string& end = args[3];
 
     auto entries = store_.xrange(key, start, end);
-
-    std::string result = "*" + std::to_string(entries.size()) + "\r\n";
-    for (const auto& entry : entries) {
-        result += "*2\r\n";
-        result += RespParser::encode_bulk_string(entry.id);
-        result += "*" + std::to_string(entry.fields.size() * 2) + "\r\n";
-        for (const auto& [field, value] : entry.fields) {
-            result += RespParser::encode_bulk_string(field);
-            result += RespParser::encode_bulk_string(value);
-        }
-    }
-
-    return result;
+    return RespParser::encode_entries(entries);
 }
 
 std::string CommandHandler::handle_xread(const std::vector<std::string>& args) {
     size_t streams_idx = 0;
     for (size_t i = 1; i < args.size(); ++i) {
-        std::string arg = args[i];
-        std::transform(
-            arg.begin(), arg.end(), arg.begin(), [](unsigned char c) { return std::toupper(c); });
-        if (arg == "STREAMS") {
+        if (to_upper(args[i]) == "STREAMS") {
             streams_idx = i;
             break;
         }
@@ -497,10 +474,7 @@ ProcessResult CommandHandler::handle_xread_with_blocking(int fd,
     size_t start_idx = 1;
 
     if (args.size() > start_idx) {
-        std::string arg = args[start_idx];
-        std::transform(
-            arg.begin(), arg.end(), arg.begin(), [](unsigned char c) { return std::toupper(c); });
-        if (arg == "BLOCK") {
+        if (to_upper(args[start_idx]) == "BLOCK") {
             has_block = true;
             if (start_idx + 1 >= args.size()) {
                 return {false, RespParser::encode_error("ERR syntax error")};
@@ -517,10 +491,7 @@ ProcessResult CommandHandler::handle_xread_with_blocking(int fd,
 
     size_t streams_idx = 0;
     for (size_t i = start_idx; i < args.size(); ++i) {
-        std::string arg = args[i];
-        std::transform(
-            arg.begin(), arg.end(), arg.begin(), [](unsigned char c) { return std::toupper(c); });
-        if (arg == "STREAMS") {
+        if (to_upper(args[i]) == "STREAMS") {
             streams_idx = i;
             break;
         }
@@ -557,13 +528,7 @@ ProcessResult CommandHandler::handle_xread_with_blocking(int fd,
         results.emplace_back(key, std::move(entries));
     }
 
-    bool has_data = false;
-    for (const auto& [key, entries] : results) {
-        if (!entries.empty()) {
-            has_data = true;
-            break;
-        }
-    }
+    bool has_data = std::ranges::any_of(results, [](const auto& p) { return !p.second.empty(); });
 
     if (has_data || !has_block) {
         return {false, RespParser::encode_stream_entries(results)};

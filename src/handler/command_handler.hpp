@@ -36,6 +36,7 @@ class CommandHandler {
     explicit CommandHandler(Store& store, const ServerConfig& config = {});
 
     void set_blocking_manager(BlockingManager* manager) { blocking_manager_ = manager; }
+    const ServerConfig& config() const noexcept { return config_; }
 
     std::string process(std::string_view input);
     ProcessResult process_with_fd(int fd,
