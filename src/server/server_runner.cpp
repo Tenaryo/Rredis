@@ -11,7 +11,8 @@ std::expected<RedisApp, std::string> RedisApp::create(const AppConfig& config) {
     auto server = Server::create(config.port);
     if (!server)
         return std::unexpected(server.error());
-    return RedisApp(std::move(*server), config.port, config.server_config);
+    return std::expected<RedisApp, std::string>(
+        std::in_place, std::move(*server), config.port, config.server_config);
 }
 
 bool RedisApp::perform_replica_handshake() {

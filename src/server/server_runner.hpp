@@ -29,13 +29,17 @@ class RedisApp {
     std::unordered_set<int> replica_fds_;
     int listening_port_;
 
-    RedisApp(Server server, int listening_port, const ServerConfig& config);
-
     void on_event(int fd);
     std::chrono::milliseconds compute_timeout();
     void send_to_blocked(int fd, const std::string& response);
     bool perform_replica_handshake();
   public:
+    RedisApp(Server server, int listening_port, const ServerConfig& config);
+    RedisApp(const RedisApp&) = delete;
+    RedisApp& operator=(const RedisApp&) = delete;
+    RedisApp(RedisApp&&) = delete;
+    RedisApp& operator=(RedisApp&&) = delete;
+
     static std::expected<RedisApp, std::string> create(const AppConfig& config);
     int run();
 };
