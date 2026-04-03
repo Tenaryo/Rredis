@@ -17,6 +17,7 @@ add_executable(redis
     src/protocol/resp_parser.cpp
     src/replica/replica_connector.cpp
     src/server/server.cpp
+    src/server/server_runner.cpp
     src/store/store.cpp
 )
 
