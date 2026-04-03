@@ -1,5 +1,6 @@
 #pragma once
 
+#include <charconv>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -13,18 +14,18 @@ struct StreamId {
         auto dash = id.find('-');
         if (dash == std::string_view::npos)
             return std::nullopt;
-        try {
-            size_t pos{};
-            auto ts = std::stoll(std::string(id.substr(0, dash)), &pos);
-            if (pos != dash)
-                return std::nullopt;
-            auto seq = std::stoll(std::string(id.substr(dash + 1)), &pos);
-            if (pos != id.size() - dash - 1)
-                return std::nullopt;
-            return StreamId{ts, seq};
-        } catch (...) {
+
+        int64_t ts{};
+        auto [ptr1, ec1] = std::from_chars(id.data(), id.data() + dash, ts);
+        if (ec1 != std::errc{} || ptr1 != id.data() + dash)
             return std::nullopt;
-        }
+
+        int64_t seq{};
+        auto [ptr2, ec2] = std::from_chars(id.data() + dash + 1, id.data() + id.size(), seq);
+        if (ec2 != std::errc{} || ptr2 != id.data() + id.size())
+            return std::nullopt;
+
+        return StreamId{ts, seq};
     }
 
     std::string to_string() const {
