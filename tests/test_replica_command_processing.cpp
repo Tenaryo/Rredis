@@ -503,6 +503,228 @@ void test_replconf_getack_end_to_end() {
     std::cout << "\u2713 Test passed: REPLCONF GETACK end-to-end returns REPLCONF ACK 0\n";
 }
 
+constexpr std::array<unsigned char, 88> kRdbBytes{
+    0x52, 0x45, 0x44, 0x49, 0x53, 0x30, 0x30, 0x31, 0x31, 0xfa, 0x09, 0x72, 0x65, 0x64, 0x69,
+    0x73, 0x2d, 0x76, 0x65, 0x72, 0x05, 0x37, 0x2e, 0x32, 0x2e, 0x30, 0xfa, 0x0a, 0x72, 0x65,
+    0x64, 0x69, 0x73, 0x2d, 0x62, 0x69, 0x74, 0x73, 0xc0, 0x40, 0xfa, 0x05, 0x63, 0x74, 0x69,
+    0x6d, 0x65, 0xc2, 0x6d, 0x08, 0xbc, 0x65, 0xfa, 0x08, 0x75, 0x73, 0x65, 0x64, 0x2d, 0x6d,
+    0x65, 0x6d, 0xc2, 0xb0, 0xc4, 0x10, 0x00, 0xfa, 0x08, 0x61, 0x6f, 0x66, 0x2d, 0x62, 0x61,
+    0x73, 0x65, 0xc0, 0x00, 0xff, 0xf0, 0x6e, 0x3b, 0xfe, 0xc0, 0xff, 0x5a, 0xa2};
+
+struct MockMasterServer {
+    int server_fd_{-1};
+    int port_{0};
+    std::string rdb_file;
+
+    MockMasterServer() : rdb_file(kRdbBytes.begin(), kRdbBytes.end()) {
+        server_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        assert(server_fd_ >= 0);
+        int reuse = 1;
+        ::setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+        struct sockaddr_in addr {};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = htons(0);
+        assert(::bind(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == 0);
+        assert(::listen(server_fd_, 1) == 0);
+        socklen_t len = sizeof(addr);
+        ::getsockname(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), &len);
+        port_ = ntohs(addr.sin_port);
+    }
+
+    ~MockMasterServer() {
+        if (server_fd_ >= 0)
+            ::close(server_fd_);
+    }
+
+    int port() const { return port_; }
+
+    void do_handshake(int client_fd) {
+        auto read_msg = [&]() -> std::string {
+            char buf[512]{};
+            auto n = ::read(client_fd, buf, sizeof(buf));
+            return n > 0 ? std::string(buf, static_cast<size_t>(n)) : std::string{};
+        };
+
+        read_msg();
+        ::send(client_fd, "+PONG\r\n", 7, 0);
+        read_msg();
+        ::send(client_fd, "+OK\r\n", 5, 0);
+        read_msg();
+        ::send(client_fd, "+OK\r\n", 5, 0);
+        read_msg();
+        std::string fullresync = "+FULLRESYNC abc 0\r\n";
+        ::send(client_fd, fullresync.c_str(), fullresync.size(), 0);
+        std::string rdb_transfer = "$88\r\n" + rdb_file;
+        ::send(client_fd, rdb_transfer.c_str(), rdb_transfer.size(), 0);
+    }
+};
+
+void test_replconf_getack_accumulated_offset() {
+    MockMasterServer master;
+
+    std::thread master_thread([&]() {
+        int client_fd = ::accept(master.server_fd_, nullptr, nullptr);
+        assert(client_fd >= 0);
+        master.do_handshake(client_fd);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+        auto getack1 = RespParser::encode_array({"REPLCONF", "GETACK", "*"});
+        ::send(client_fd, getack1.c_str(), getack1.size(), MSG_NOSIGNAL);
+        auto ack1 = recv_all(client_fd, 500);
+        assert(ack1 == RespParser::encode_array({"REPLCONF", "ACK", "0"}));
+
+        auto ping_cmd = RespParser::encode_array({"PING"});
+        ::send(client_fd, ping_cmd.c_str(), ping_cmd.size(), MSG_NOSIGNAL);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        auto getack2 = RespParser::encode_array({"REPLCONF", "GETACK", "*"});
+        ::send(client_fd, getack2.c_str(), getack2.size(), MSG_NOSIGNAL);
+        auto ack2 = recv_all(client_fd, 500);
+        assert(ack2 == RespParser::encode_array({"REPLCONF", "ACK", "51"}));
+
+        ::close(client_fd);
+    });
+
+    ReplicaConnector connector("127.0.0.1", master.port());
+    Store store;
+    ServerConfig config;
+    CommandHandler handler(store, config);
+    connector.set_handler(handler);
+
+    assert(connector.send_ping());
+    assert(connector.send_replconf(6380));
+    assert(connector.send_psync());
+    assert(connector.receive_rdb().has_value());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    auto result1 = connector.process_propagated_commands();
+    assert(result1.has_value());
+    connector.send_response(*result1);
+
+    auto result2 = connector.process_propagated_commands();
+    assert(result2.has_value());
+    connector.send_response(*result2);
+
+    master_thread.join();
+
+    std::cout << "\u2713 Test passed: REPLCONF GETACK returns accumulated offset after PING\n";
+}
+
+void test_replconf_getack_with_set_commands() {
+    MockMasterServer master;
+
+    std::thread master_thread([&]() {
+        int client_fd = ::accept(master.server_fd_, nullptr, nullptr);
+        assert(client_fd >= 0);
+        master.do_handshake(client_fd);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+        auto getack1 = RespParser::encode_array({"REPLCONF", "GETACK", "*"});
+        ::send(client_fd, getack1.c_str(), getack1.size(), MSG_NOSIGNAL);
+        auto ack1 = recv_all(client_fd, 500);
+        assert(ack1 == RespParser::encode_array({"REPLCONF", "ACK", "0"}));
+
+        auto ping_cmd = RespParser::encode_array({"PING"});
+        ::send(client_fd, ping_cmd.c_str(), ping_cmd.size(), MSG_NOSIGNAL);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        auto getack2 = RespParser::encode_array({"REPLCONF", "GETACK", "*"});
+        ::send(client_fd, getack2.c_str(), getack2.size(), MSG_NOSIGNAL);
+        auto ack2 = recv_all(client_fd, 500);
+        assert(ack2 == RespParser::encode_array({"REPLCONF", "ACK", "51"}));
+
+        auto set1 = RespParser::encode_array({"SET", "foo", "1"});
+        ::send(client_fd, set1.c_str(), set1.size(), MSG_NOSIGNAL);
+
+        auto set2 = RespParser::encode_array({"SET", "bar", "2"});
+        ::send(client_fd, set2.c_str(), set2.size(), MSG_NOSIGNAL);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        auto getack3 = RespParser::encode_array({"REPLCONF", "GETACK", "*"});
+        ::send(client_fd, getack3.c_str(), getack3.size(), MSG_NOSIGNAL);
+        auto ack3 = recv_all(client_fd, 500);
+        assert(ack3 == RespParser::encode_array({"REPLCONF", "ACK", "146"}));
+
+        ::close(client_fd);
+    });
+
+    ReplicaConnector connector("127.0.0.1", master.port());
+    Store store;
+    ServerConfig config;
+    CommandHandler handler(store, config);
+    connector.set_handler(handler);
+
+    assert(connector.send_ping());
+    assert(connector.send_replconf(6380));
+    assert(connector.send_psync());
+    assert(connector.receive_rdb().has_value());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    auto result1 = connector.process_propagated_commands();
+    assert(result1.has_value());
+    connector.send_response(*result1);
+
+    auto result2 = connector.process_propagated_commands();
+    assert(result2.has_value());
+    connector.send_response(*result2);
+
+    auto result3 = connector.process_propagated_commands();
+    assert(result3.has_value());
+    connector.send_response(*result3);
+
+    master_thread.join();
+
+    std::cout << "\u2713 Test passed: REPLCONF GETACK returns correct offset with SET commands\n";
+}
+
+void test_replconf_getack_multiple_commands_single_read() {
+    MockMasterServer master;
+
+    std::thread master_thread([&]() {
+        int client_fd = ::accept(master.server_fd_, nullptr, nullptr);
+        assert(client_fd >= 0);
+        master.do_handshake(client_fd);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+        auto set1 = RespParser::encode_array({"SET", "foo", "bar"});
+        auto set2 = RespParser::encode_array({"SET", "baz", "qux"});
+        auto getack = RespParser::encode_array({"REPLCONF", "GETACK", "*"});
+
+        std::string combined = set1 + set2 + getack;
+        ::send(client_fd, combined.c_str(), combined.size(), MSG_NOSIGNAL);
+
+        auto ack = recv_all(client_fd, 500);
+        assert(ack == RespParser::encode_array({"REPLCONF", "ACK", "58"}));
+
+        ::close(client_fd);
+    });
+
+    ReplicaConnector connector("127.0.0.1", master.port());
+    Store store;
+    ServerConfig config;
+    CommandHandler handler(store, config);
+    connector.set_handler(handler);
+
+    assert(connector.send_ping());
+    assert(connector.send_replconf(6380));
+    assert(connector.send_psync());
+    assert(connector.receive_rdb().has_value());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    auto result = connector.process_propagated_commands();
+    assert(result.has_value());
+    connector.send_response(*result);
+
+    master_thread.join();
+
+    std::cout
+        << "\u2713 Test passed: REPLCONF GETACK works with multiple commands in single read\n";
+}
+
 int main() {
     std::cout << "Running replica command processing tests...\n\n";
 
@@ -516,6 +738,9 @@ int main() {
     test_replica_continues_after_master_disconnect();
     test_command_handler_replconf_getack();
     test_replconf_getack_end_to_end();
+    test_replconf_getack_accumulated_offset();
+    test_replconf_getack_with_set_commands();
+    test_replconf_getack_multiple_commands_single_read();
 
     std::cout << "\n\u2713 All tests passed!\n";
     return 0;
