@@ -35,6 +35,7 @@ class ReplicaConnector {
 
     void set_handler(CommandHandler& handler) { handler_ = &handler; }
     auto process_propagated_commands() -> std::optional<std::string>;
+    auto process_pending_buffer() -> std::string;
     void send_response(std::string_view data);
     [[nodiscard]] auto master_fd() const noexcept -> int { return fd_; }
 };

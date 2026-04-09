@@ -721,6 +721,64 @@ void test_replconf_getack_multiple_commands_single_read() {
         << "\u2713 Test passed: REPLCONF GETACK works with multiple commands in single read\n";
 }
 
+void test_replconf_getack_arrives_with_rdb_data() {
+    MockMasterServer master;
+
+    std::thread master_thread([&]() {
+        int client_fd = ::accept(master.server_fd_, nullptr, nullptr);
+        assert(client_fd >= 0);
+
+        auto read_msg = [&]() -> std::string {
+            char buf[512]{};
+            auto n = ::read(client_fd, buf, sizeof(buf));
+            return n > 0 ? std::string(buf, static_cast<size_t>(n)) : std::string{};
+        };
+
+        read_msg();
+        ::send(client_fd, "+PONG\r\n", 7, 0);
+        read_msg();
+        ::send(client_fd, "+OK\r\n", 5, 0);
+        read_msg();
+        ::send(client_fd, "+OK\r\n", 5, 0);
+        read_msg();
+
+        std::string fullresync = "+FULLRESYNC abc 0\r\n";
+        std::string rdb_transfer = "$88\r\n" + master.rdb_file;
+        auto getack = RespParser::encode_array({"REPLCONF", "GETACK", "*"});
+
+        std::string combined = fullresync + rdb_transfer + getack;
+        ssize_t sent = ::send(client_fd, combined.c_str(), combined.size(), MSG_NOSIGNAL);
+        assert(sent == static_cast<ssize_t>(combined.size()));
+
+        auto ack = recv_all(client_fd, 2000);
+        auto expected = RespParser::encode_array({"REPLCONF", "ACK", "0"});
+        assert(ack == expected);
+
+        ::close(client_fd);
+    });
+
+    ReplicaConnector connector("127.0.0.1", master.port());
+    Store store;
+    ServerConfig config;
+    CommandHandler handler(store, config);
+    connector.set_handler(handler);
+
+    assert(connector.send_ping());
+    assert(connector.send_replconf(6380));
+    assert(connector.send_psync());
+    assert(connector.receive_rdb().has_value());
+
+    auto result = connector.process_pending_buffer();
+    assert(!result.empty());
+    auto expected = RespParser::encode_array({"REPLCONF", "ACK", "0"});
+    assert(result == expected);
+    connector.send_response(result);
+
+    master_thread.join();
+
+    std::cout << "\u2713 Test passed: REPLCONF GETACK data preserved when arriving with RDB\n";
+}
+
 int main() {
     std::cout << "Running replica command processing tests...\n\n";
 
@@ -737,6 +795,7 @@ int main() {
     test_replconf_getack_accumulated_offset();
     test_replconf_getack_with_set_commands();
     test_replconf_getack_multiple_commands_single_read();
+    test_replconf_getack_arrives_with_rdb_data();
 
     std::cout << "\n\u2713 All tests passed!\n";
     return 0;
