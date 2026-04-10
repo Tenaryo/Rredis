@@ -43,11 +43,38 @@ void test_subscribed_mode_rejects_disallowed_commands() {
     std::cout << "Test 2c passed: ECHO rejected in subscribed mode\n";
 }
 
+void test_ping_in_subscribed_mode() {
+    Store store;
+    CommandHandler handler(store);
+    PubSubManager pubsub;
+    handler.set_pubsub_manager(&pubsub);
+
+    constexpr int kClientFd = 1;
+    handler.process_with_fd(kClientFd, "*2\r\n$9\r\nsubscribe\r\n$3\r\nfoo\r\n", nullptr);
+
+    auto result = handler.process_with_fd(kClientFd, "*1\r\n$4\r\nPING\r\n", nullptr);
+
+    auto expected = "*2\r\n$4\r\npong\r\n$0\r\n\r\n";
+    assert(result.response == expected);
+    std::cout << "Test 3 passed: PING in subscribed mode returns [\"pong\", \"\"]\n";
+}
+
+void test_ping_in_normal_mode() {
+    Store store;
+    CommandHandler handler(store);
+
+    auto response = handler.process("*1\r\n$4\r\nPING\r\n");
+    assert(response == "+PONG\r\n");
+    std::cout << "Test 4 passed: PING in normal mode returns +PONG\r\n";
+}
+
 int main() {
     std::cout << "Running SUBSCRIBE tests...\n\n";
 
     test_subscribe_single_channel();
     test_subscribed_mode_rejects_disallowed_commands();
+    test_ping_in_subscribed_mode();
+    test_ping_in_normal_mode();
 
     std::cout << "\nAll tests passed!\n";
     return 0;
