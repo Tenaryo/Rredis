@@ -169,8 +169,84 @@ void test_publish_only_delivers_to_matching_channel() {
     std::cout << "Test 10 passed: PUBLISH only delivers to subscribers of the matching channel\n";
 }
 
+void test_unsubscribe_single_channel() {
+    Store store;
+    CommandHandler handler(store);
+    PubSubManager pubsub;
+    handler.set_pubsub_manager(&pubsub);
+
+    constexpr int kClientFd = 1;
+    handler.process_with_fd(kClientFd, "*2\r\n$9\r\nsubscribe\r\n$3\r\nfoo\r\n", nullptr);
+
+    auto result =
+        handler.process_with_fd(kClientFd, "*2\r\n$11\r\nunsubscribe\r\n$3\r\nfoo\r\n", nullptr);
+
+    auto expected = "*3\r\n" + RespParser::encode_bulk_string("unsubscribe") +
+                    RespParser::encode_bulk_string("foo") + RespParser::encode_integer(0);
+    assert(result.response == expected);
+    std::cout << "Test 11 passed: UNSUBSCRIBE foo returns [\"unsubscribe\", \"foo\", 0]\n";
+}
+
+void test_unsubscribe_partial() {
+    Store store;
+    CommandHandler handler(store);
+    PubSubManager pubsub;
+    handler.set_pubsub_manager(&pubsub);
+
+    constexpr int kClientFd = 1;
+    handler.process_with_fd(kClientFd, "*2\r\n$9\r\nsubscribe\r\n$3\r\nfoo\r\n", nullptr);
+    handler.process_with_fd(kClientFd, "*2\r\n$9\r\nsubscribe\r\n$3\r\nbar\r\n", nullptr);
+
+    auto result =
+        handler.process_with_fd(kClientFd, "*2\r\n$11\r\nunsubscribe\r\n$3\r\nfoo\r\n", nullptr);
+
+    auto expected = "*3\r\n" + RespParser::encode_bulk_string("unsubscribe") +
+                    RespParser::encode_bulk_string("foo") + RespParser::encode_integer(1);
+    assert(result.response == expected);
+
+    std::unordered_map<int, std::vector<std::string>> delivered;
+    auto send_fn = [&delivered](int fd, const std::string& msg) { delivered[fd].push_back(msg); };
+
+    handler.process_with_fd(10, "*3\r\n$7\r\nPUBLISH\r\n$3\r\nfoo\r\n$5\r\nhello\r\n", send_fn);
+    assert(!delivered.contains(kClientFd));
+
+    delivered.clear();
+    handler.process_with_fd(10, "*3\r\n$7\r\nPUBLISH\r\n$3\r\nbar\r\n$5\r\nworld\r\n", send_fn);
+    assert(delivered.contains(kClientFd));
+    assert(delivered[kClientFd][0] == "*3\r\n$7\r\nmessage\r\n$3\r\nbar\r\n$5\r\nworld\r\n");
+
+    std::cout << "Test 12 passed: UNSUBSCRIBE partial, foo stopped, bar still receives\n";
+}
+
+void test_unsubscribe_not_subscribed_channel() {
+    Store store;
+    CommandHandler handler(store);
+    PubSubManager pubsub;
+    handler.set_pubsub_manager(&pubsub);
+
+    constexpr int kClientFd = 1;
+    handler.process_with_fd(kClientFd, "*2\r\n$9\r\nsubscribe\r\n$3\r\nfoo\r\n", nullptr);
+
+    auto result =
+        handler.process_with_fd(kClientFd, "*2\r\n$11\r\nunsubscribe\r\n$3\r\nbar\r\n", nullptr);
+
+    auto expected = "*3\r\n" + RespParser::encode_bulk_string("unsubscribe") +
+                    RespParser::encode_bulk_string("bar") + RespParser::encode_integer(1);
+    assert(result.response == expected);
+    std::cout << "Test 13 passed: UNSUBSCRIBE bar (not subscribed) returns count unchanged (1)\n";
+}
+
+void test_unsubscribe_wrong_number_of_args() {
+    Store store;
+    CommandHandler handler(store);
+
+    auto result = handler.process("*1\r\n$11\r\nunsubscribe\r\n");
+    assert(result.starts_with("-ERR wrong number of arguments for 'unsubscribe' command"));
+    std::cout << "Test 14 passed: UNSUBSCRIBE with no args returns error\n";
+}
+
 int main() {
-    std::cout << "Running SUBSCRIBE/PUBLISH tests...\n\n";
+    std::cout << "Running SUBSCRIBE/PUBLISH/UNSUBSCRIBE tests...\n\n";
 
     test_subscribe_single_channel();
     test_subscribed_mode_rejects_disallowed_commands();
@@ -181,6 +257,10 @@ int main() {
     test_publish_wrong_number_of_args();
     test_publish_delivers_message_to_subscribers();
     test_publish_only_delivers_to_matching_channel();
+    test_unsubscribe_single_channel();
+    test_unsubscribe_partial();
+    test_unsubscribe_not_subscribed_channel();
+    test_unsubscribe_wrong_number_of_args();
 
     std::cout << "\nAll tests passed!\n";
     return 0;
