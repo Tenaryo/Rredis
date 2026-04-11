@@ -286,6 +286,18 @@ CommandHandler::execute_command(const std::vector<std::string>& args,
                     RespParser::encode_integer(static_cast<int64_t>(count));
         return {false, std::move(resp)};
     }
+    if (cmd == "UNSUBSCRIBE") {
+        if (args.size() < 2) {
+            return {false,
+                    RespParser::encode_error(
+                        "ERR wrong number of arguments for 'unsubscribe' command")};
+        }
+        size_t count = pubsub_manager_ ? pubsub_manager_->unsubscribe(fd, args[1]) : 0;
+        auto resp = "*3\r\n" + RespParser::encode_bulk_string("unsubscribe") +
+                    RespParser::encode_bulk_string(args[1]) +
+                    RespParser::encode_integer(static_cast<int64_t>(count));
+        return {false, std::move(resp)};
+    }
     if (cmd == "PUBLISH") {
         if (args.size() < 3) {
             return {

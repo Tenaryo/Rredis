@@ -24,6 +24,22 @@ class PubSubManager {
         return subscriptions_[fd].size();
     }
 
+    size_t unsubscribe(int fd, std::string_view channel) {
+        auto it = subscriptions_.find(fd);
+        if (it == subscriptions_.end())
+            return 0;
+        if (auto cit = channel_subscribers_.find(channel); cit != channel_subscribers_.end()) {
+            cit->second.erase(fd);
+            if (cit->second.empty())
+                channel_subscribers_.erase(cit);
+        }
+        it->second.erase(std::string(channel));
+        size_t remaining = it->second.size();
+        if (remaining == 0)
+            subscriptions_.erase(it);
+        return remaining;
+    }
+
     void unsubscribe(int fd) {
         auto it = subscriptions_.find(fd);
         if (it == subscriptions_.end())
