@@ -402,6 +402,10 @@ std::optional<int64_t> Store::zrank(std::string_view key, std::string_view membe
     return static_cast<int64_t>(std::distance(zset->entries.begin(), entry_it));
 }
 
+std::vector<std::string> Store::zrange(std::string_view key, int64_t start, int64_t stop) {
+    return {};
+}
+
 std::vector<std::string> Store::keys() {
     std::vector<std::string> result;
     for (auto it = data_.begin(); it != data_.end();) {
