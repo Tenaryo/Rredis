@@ -61,6 +61,7 @@ class Store {
     Redis::List* get_or_create_list(std::string key);
     Redis::Stream* get_stream(std::string_view key);
     Redis::Stream* get_or_create_stream(std::string key);
+    Redis::SortedSet* get_zset(std::string_view key);
     Redis::SortedSet* get_or_create_zset(std::string key);
 
     static size_t lower_bound(const Redis::Stream& stream, const StreamId& target);

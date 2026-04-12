@@ -226,6 +226,13 @@ CommandHandler::execute_command(const std::vector<std::string>& args,
         }
         return {false, handle_zadd(args)};
     }
+    if (cmd == "ZRANK") {
+        if (args.size() < 3) {
+            return {false,
+                    RespParser::encode_error("ERR wrong number of arguments for 'zrank' command")};
+        }
+        return {false, handle_zrank(args)};
+    }
     if (cmd == "XRANGE") {
         if (args.size() < 4) {
             return {false,
@@ -518,6 +525,11 @@ std::string CommandHandler::handle_zadd(const std::vector<std::string>& args) {
     }
     auto added = store_.zadd(key, score, args[3]);
     return RespParser::encode_integer(added);
+}
+
+std::string CommandHandler::handle_zrank(const std::vector<std::string>& args) {
+    auto rank = store_.zrank(args[1], args[2]);
+    return rank ? RespParser::encode_integer(*rank) : RespParser::encode_null_bulk_string();
 }
 
 std::string CommandHandler::handle_xadd(const std::vector<std::string>& args) {

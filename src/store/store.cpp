@@ -61,6 +61,14 @@ Redis::Stream* Store::get_or_create_stream(std::string key) {
     return &std::get<Redis::Stream>(entry->value);
 }
 
+Redis::SortedSet* Store::get_zset(std::string_view key) {
+    Entry* entry = find_valid_entry(key);
+    if (!entry || !std::holds_alternative<Redis::SortedSet>(entry->value)) {
+        return nullptr;
+    }
+    return &std::get<Redis::SortedSet>(entry->value);
+}
+
 Redis::SortedSet* Store::get_or_create_zset(std::string key) {
     Entry* entry = find_valid_entry(key);
     if (!entry) {
@@ -378,9 +386,20 @@ int64_t Store::zadd(std::string key, double score, std::string member) {
     return zset->add(score, std::move(member));
 }
 
-std::optional<int64_t> Store::zrank([[maybe_unused]] std::string_view key,
-                                    [[maybe_unused]] std::string_view member) {
-    return std::nullopt;
+std::optional<int64_t> Store::zrank(std::string_view key, std::string_view member) {
+    auto* zset = get_zset(key);
+    if (!zset)
+        return std::nullopt;
+
+    auto it = zset->member_scores.find(std::string(member));
+    if (it == zset->member_scores.end())
+        return std::nullopt;
+
+    auto entry_it = zset->entries.find({it->second, std::string(member)});
+    if (entry_it == zset->entries.end())
+        return std::nullopt;
+
+    return static_cast<int64_t>(std::distance(zset->entries.begin(), entry_it));
 }
 
 std::vector<std::string> Store::keys() {
