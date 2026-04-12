@@ -12,8 +12,8 @@ namespace {
 using namespace std::string_view_literals;
 
 bool is_write_command(std::string_view cmd) {
-    static constexpr auto kWriteCommands =
-        std::array{"SET"sv, "DEL"sv, "INCR"sv, "RPUSH"sv, "LPUSH"sv, "LPOP"sv, "XADD"sv, "ZADD"sv};
+    static constexpr auto kWriteCommands = std::array{
+        "SET"sv, "DEL"sv, "INCR"sv, "RPUSH"sv, "LPUSH"sv, "LPOP"sv, "XADD"sv, "ZADD"sv, "ZREM"sv};
     return std::ranges::find(kWriteCommands, cmd) != kWriteCommands.end();
 }
 
@@ -254,6 +254,13 @@ CommandHandler::execute_command(const std::vector<std::string>& args,
                     RespParser::encode_error("ERR wrong number of arguments for 'zscore' command")};
         }
         return {false, handle_zscore(args)};
+    }
+    if (cmd == "ZREM") {
+        if (args.size() < 3) {
+            return {false,
+                    RespParser::encode_error("ERR wrong number of arguments for 'zrem' command")};
+        }
+        return {false, handle_zrem(args)};
     }
     if (cmd == "XRANGE") {
         if (args.size() < 4) {
@@ -577,6 +584,11 @@ std::string CommandHandler::handle_zscore(const std::vector<std::string>& args) 
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%.17g", *score);
     return RespParser::encode_bulk_string(buf);
+}
+
+std::string CommandHandler::handle_zrem(const std::vector<std::string>& args) {
+    auto removed = store_.zrem(args[1], args[2]);
+    return RespParser::encode_integer(removed);
 }
 
 std::string CommandHandler::handle_xadd(const std::vector<std::string>& args) {
