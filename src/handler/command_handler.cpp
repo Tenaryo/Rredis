@@ -5,6 +5,7 @@
 #include "store/store.hpp"
 #include "util/parse.hpp"
 #include <array>
+#include <cstdio>
 #include <string_view>
 
 namespace {
@@ -573,14 +574,9 @@ std::string CommandHandler::handle_zscore(const std::vector<std::string>& args) 
     if (!score)
         return RespParser::encode_null_bulk_string();
 
-    auto s = std::to_string(*score);
-    if (s.find('.') != std::string::npos) {
-        while (s.back() == '0')
-            s.pop_back();
-        if (s.back() == '.')
-            s.pop_back();
-    }
-    return RespParser::encode_bulk_string(s);
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.17g", *score);
+    return RespParser::encode_bulk_string(buf);
 }
 
 std::string CommandHandler::handle_xadd(const std::vector<std::string>& args) {
