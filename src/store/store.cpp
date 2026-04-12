@@ -451,6 +451,13 @@ std::optional<double> Store::zscore(std::string_view key, std::string_view membe
     return it->second;
 }
 
+int64_t Store::zrem(std::string_view key, std::string_view member) {
+    auto* zset = get_zset(key);
+    if (!zset)
+        return 0;
+    return zset->remove(member);
+}
+
 std::vector<std::string> Store::keys() {
     std::vector<std::string> result;
     for (auto it = data_.begin(); it != data_.end();) {

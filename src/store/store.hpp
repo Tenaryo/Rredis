@@ -41,6 +41,15 @@ struct SortedSet {
         entries.emplace(score, std::move(member));
         return 1;
     }
+
+    int64_t remove(std::string_view member) {
+        auto it = member_scores.find(std::string(member));
+        if (it == member_scores.end())
+            return 0;
+        entries.erase({it->second, std::string(member)});
+        member_scores.erase(it);
+        return 1;
+    }
 };
 
 using Value = std::variant<String, List, Stream, SortedSet>;
@@ -96,6 +105,7 @@ class Store {
     std::vector<std::string> zrange(std::string_view key, int64_t start, int64_t stop);
     int64_t zcard(std::string_view key);
     std::optional<double> zscore(std::string_view key, std::string_view member);
+    int64_t zrem(std::string_view key, std::string_view member);
 
     std::string get_type(std::string_view key);
     std::vector<std::string> keys();
