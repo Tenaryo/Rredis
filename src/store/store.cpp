@@ -378,6 +378,11 @@ int64_t Store::zadd(std::string key, double score, std::string member) {
     return zset->add(score, std::move(member));
 }
 
+std::optional<int64_t> Store::zrank([[maybe_unused]] std::string_view key,
+                                    [[maybe_unused]] std::string_view member) {
+    return std::nullopt;
+}
+
 std::vector<std::string> Store::keys() {
     std::vector<std::string> result;
     for (auto it = data_.begin(); it != data_.end();) {

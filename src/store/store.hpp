@@ -91,6 +91,7 @@ class Store {
     std::optional<std::string> get_stream_max_id(std::string_view key);
 
     int64_t zadd(std::string key, double score, std::string member);
+    std::optional<int64_t> zrank(std::string_view key, std::string_view member);
 
     std::string get_type(std::string_view key);
     std::vector<std::string> keys();
