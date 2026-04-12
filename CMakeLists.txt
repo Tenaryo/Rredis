@@ -8,12 +8,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Threads REQUIRED)
 
-add_executable(redis
+add_library(redis_core STATIC
     src/block_manager/blocking_manager.cpp
     src/connection/connection.cpp
     src/event_loop/event_loop.cpp
     src/handler/command_handler.cpp
-    src/main.cpp
     src/protocol/resp_parser.cpp
     src/rdb/rdb_parser.cpp
     src/replica/replica_connector.cpp
@@ -22,15 +21,18 @@ add_executable(redis
     src/store/store.cpp
 )
 
-target_compile_features(redis PUBLIC cxx_std_23)
-target_include_directories(redis PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(redis PRIVATE Threads::Threads)
+target_compile_features(redis_core PUBLIC cxx_std_23)
+target_include_directories(redis_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(redis_core PUBLIC Threads::Threads)
 
-target_compile_options(redis PRIVATE
+target_compile_options(redis_core PRIVATE
     -Wall -Wextra -Wpedantic -Werror
     $<$<CONFIG:Debug>:-g -O0>
     $<$<CONFIG:Release>:-O2>
 )
+
+add_executable(redis src/main.cpp)
+target_link_libraries(redis PRIVATE redis_core)
 
 option(BUILD_TESTS "Build tests" ON)
 if(BUILD_TESTS)
