@@ -80,6 +80,46 @@ void test_geoadd_both_invalid_returns_error_with_both_keywords() {
     std::cout << "\u2713 Test passed: GEOADD both invalid returns error with both keywords\r\n";
 }
 
+static std::string make_zrange_resp(std::string_view key, int64_t start, int64_t stop) {
+    return "*4\r\n$6\r\nZRANGE\r\n$" + std::to_string(key.size()) + "\r\n" + std::string(key) +
+           "\r\n$" + std::to_string(std::to_string(start).size()) + "\r\n" + std::to_string(start) +
+           "\r\n$" + std::to_string(std::to_string(stop).size()) + "\r\n" + std::to_string(stop) +
+           "\r\n";
+}
+
+void test_geoadd_stores_member_in_sorted_set() {
+    Store store;
+    CommandHandler handler(store);
+
+    auto geoadd_resp = make_geoadd_resp("places", "2.2944692", "48.8584625", "Paris");
+    auto add_response = handler.process(geoadd_resp);
+    assert(add_response == ":1\r\n");
+
+    auto zrange_resp = make_zrange_resp("places", 0, -1);
+    auto range_response = handler.process(zrange_resp);
+    assert(range_response == "*1\r\n$5\r\nParis\r\n");
+
+    std::cout << "\u2713 Test passed: GEOADD stores member in sorted set, ZRANGE retrieves it\r\n";
+}
+
+void test_geoadd_duplicate_member_returns_zero() {
+    Store store;
+    CommandHandler handler(store);
+
+    auto geoadd_resp = make_geoadd_resp("places", "2.2944692", "48.8584625", "Paris");
+    auto first = handler.process(geoadd_resp);
+    assert(first == ":1\r\n");
+
+    auto second = handler.process(geoadd_resp);
+    assert(second == ":0\r\n");
+
+    auto zrange_resp = make_zrange_resp("places", 0, -1);
+    auto range_response = handler.process(zrange_resp);
+    assert(range_response == "*1\r\n$5\r\nParis\r\n");
+
+    std::cout << "\u2713 Test passed: GEOADD duplicate member returns :0\r\n";
+}
+
 int main() {
     std::cout << "Running GEOADD command tests...\n\n";
 
@@ -87,6 +127,8 @@ int main() {
     test_geoadd_invalid_longitude_returns_error();
     test_geoadd_invalid_latitude_returns_error();
     test_geoadd_both_invalid_returns_error_with_both_keywords();
+    test_geoadd_stores_member_in_sorted_set();
+    test_geoadd_duplicate_member_returns_zero();
 
     std::cout << "\n\u2713 All tests passed!\n";
     return 0;
