@@ -1,7 +1,9 @@
+#include "../src/geo/geo_score.hpp"
 #include "../src/handler/command_handler.hpp"
 #include "../src/protocol/resp_parser.hpp"
 #include "../src/store/store.hpp"
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <string>
 
@@ -218,21 +220,73 @@ static std::string make_geopos_resp(std::string_view key, const std::vector<std:
     return input;
 }
 
-static std::string make_geo_pos_entry(const std::string& lon, const std::string& lat) {
-    return "*2\r\n" + RespParser::encode_bulk_string(lon) + RespParser::encode_bulk_string(lat);
+static std::string
+make_zadd_resp(std::string_view key, std::string_view score, std::string_view member) {
+    return "*4\r\n$4\r\nZADD\r\n$" + std::to_string(key.size()) + "\r\n" + std::string(key) +
+           "\r\n$" + std::to_string(score.size()) + "\r\n" + std::string(score) + "\r\n$" +
+           std::to_string(member.size()) + "\r\n" + std::string(member) + "\r\n";
+}
+
+static std::vector<double> parse_geopos_coordinates(const std::string& resp) {
+    std::vector<double> coords;
+    size_t pos = 0;
+    while ((pos = resp.find("$", pos)) != std::string::npos) {
+        auto crlf = resp.find("\r\n", pos);
+        if (crlf == std::string::npos)
+            break;
+        auto len_str = resp.substr(pos + 1, crlf - pos - 1);
+        if (len_str == "-1" || len_str.empty())
+            break;
+        auto val_start = crlf + 2;
+        auto val_end = resp.find("\r\n", val_start);
+        if (val_end == std::string::npos)
+            break;
+        auto val_str = resp.substr(val_start, val_end - val_start);
+        try {
+            coords.push_back(std::stod(val_str));
+        } catch (...) {
+            break;
+        }
+        pos = val_end + 2;
+    }
+    return coords;
+}
+
+static void assert_coord_near(double actual, double expected, double tolerance) {
+    auto diff = std::abs(actual - expected);
+    assert(diff < tolerance);
+}
+
+void test_geopos_decodes_score_to_coordinates() {
+    Store store;
+    CommandHandler handler(store);
+
+    handler.process(make_zadd_resp("location_key", "3663832614298053", "Foo"));
+
+    auto resp = handler.process(make_geopos_resp("location_key", {"Foo"}));
+
+    auto coords = parse_geopos_coordinates(resp);
+    assert(coords.size() == 2);
+
+    assert_coord_near(coords[0], 2.294472, 0.000001);
+    assert_coord_near(coords[1], 48.858463, 0.000001);
+
+    std::cout << "\u2713 Test passed: GEOPOS decodes score to correct lon/lat coordinates\r\n";
 }
 
 void test_geopos_existing_and_missing_member() {
     Store store;
     CommandHandler handler(store);
 
-    handler.process(make_geoadd_resp("places", "-0.0884948", "51.506479", "London"));
+    handler.process(make_geoadd_resp("places", "-0.1278", "51.5074", "London"));
 
     auto resp = handler.process(make_geopos_resp("places", {"London", "missing"}));
 
-    auto pos_entry = make_geo_pos_entry("0", "0");
-    auto expected = "*2\r\n" + pos_entry + RespParser::encode_null_array();
-    assert(resp == expected);
+    assert(resp.starts_with("*2\r\n"));
+    assert(!resp.starts_with("*2\r\n*-1"));
+
+    auto null_part = RespParser::encode_null_array();
+    assert(resp.ends_with(null_part));
 
     std::cout << "\u2713 Test passed: GEOPOS returns position for existing and null for missing "
                  "member\r\n";
@@ -250,6 +304,23 @@ void test_geopos_nonexistent_key() {
     std::cout << "\u2713 Test passed: GEOPOS returns null arrays for non-existent key\r\n";
 }
 
+static void assert_roundtrip(double orig_lat, double orig_lon, double tolerance) {
+    auto score = geo::encode(orig_lat, orig_lon);
+    auto coords = geo::decode(score);
+    assert_coord_near(coords.lat, orig_lat, tolerance);
+    assert_coord_near(coords.lon, orig_lon, tolerance);
+}
+
+void test_geo_decode_roundtrip() {
+    assert_roundtrip(48.8584625, 2.2944692, 0.000003);
+    assert_roundtrip(51.5074, -0.1278, 0.000003);
+    assert_roundtrip(-33.8688, 151.2093, 0.000003);
+    assert_roundtrip(35.6895, 139.6917, 0.000003);
+    assert_roundtrip(40.7128, -74.006, 0.000003);
+
+    std::cout << "\u2713 Test passed: geo::decode round-trip for multiple cities\r\n";
+}
+
 int main() {
     std::cout << "Running GEOADD command tests...\n\n";
 
@@ -265,8 +336,13 @@ int main() {
 
     std::cout << "\nRunning GEOPOS command tests...\n\n";
 
+    test_geopos_decodes_score_to_coordinates();
     test_geopos_existing_and_missing_member();
     test_geopos_nonexistent_key();
+
+    std::cout << "\nRunning geo::decode unit tests...\n\n";
+
+    test_geo_decode_roundtrip();
 
     std::cout << "\n\u2713 All tests passed!\n";
     return 0;

@@ -28,4 +28,27 @@ inline auto encode(double lat, double lon) -> uint64_t {
     return spread(norm_lat) | (spread(norm_lon) << 1);
 }
 
+inline auto unspread(uint64_t x) -> uint32_t {
+    x = x & 0x5555555555555555ULL;
+    x = (x | (x >> 1)) & 0x3333333333333333ULL;
+    x = (x | (x >> 2)) & 0x0F0F0F0F0F0F0F0FULL;
+    x = (x | (x >> 4)) & 0x00FF00FF00FF00FFULL;
+    x = (x | (x >> 8)) & 0x0000FFFF0000FFFFULL;
+    x = (x | (x >> 16)) & 0x00000000FFFFFFFFULL;
+    return static_cast<uint32_t>(x);
+}
+
+struct Coordinates {
+    double lat;
+    double lon;
+};
+
+inline auto decode(uint64_t score) -> Coordinates {
+    auto lat_hash = unspread(score);
+    auto lon_hash = unspread(score >> 1);
+    auto lat = (static_cast<double>(lat_hash) + 0.5) * kLatRange / kGeoStep + kLatMin;
+    auto lon = (static_cast<double>(lon_hash) + 0.5) * kLonRange / kGeoStep + kLonMin;
+    return {lat, lon};
+}
+
 } // namespace geo

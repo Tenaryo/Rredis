@@ -644,13 +644,20 @@ std::string CommandHandler::handle_geopos(const std::vector<std::string>& args) 
     auto count = args.size() - 2;
 
     std::string resp;
-    resp.reserve(count * 24);
+    resp.reserve(count * 64);
     resp += "*" + std::to_string(count) + "\r\n";
 
     for (size_t i = 2; i < args.size(); ++i) {
         auto score = store_.zscore(key, args[i]);
         if (score) {
-            resp += "*2\r\n$1\r\n0\r\n$1\r\n0\r\n";
+            auto coords = geo::decode(static_cast<uint64_t>(*score));
+            char lon_buf[32];
+            char lat_buf[32];
+            std::snprintf(lon_buf, sizeof(lon_buf), "%.17g", coords.lon);
+            std::snprintf(lat_buf, sizeof(lat_buf), "%.17g", coords.lat);
+            resp += "*2\r\n";
+            resp += RespParser::encode_bulk_string(lon_buf);
+            resp += RespParser::encode_bulk_string(lat_buf);
         } else {
             resp += "*-1\r\n";
         }
