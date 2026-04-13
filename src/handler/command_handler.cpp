@@ -326,6 +326,13 @@ CommandHandler::execute_command(const std::vector<std::string>& args,
         }
         return {false, handle_config_get(args[2])};
     }
+    if (cmd == "ACL") {
+        if (args.size() < 2 || to_upper(args[1]) != "WHOAMI") {
+            return {false,
+                    RespParser::encode_error("ERR unknown subcommand for 'ACL'. Try ACL HELP.")};
+        }
+        return {false, handle_acl_whoami()};
+    }
     if (cmd == "REPLCONF") {
         if (args.size() >= 2 && to_upper(args[1]) == "GETACK") {
             return {false, RespParser::encode_array({"REPLCONF", "ACK", "0"})};
@@ -928,4 +935,8 @@ std::string CommandHandler::handle_config_get(const std::string& param) {
         return "*2\r\n$10\r\ndbfilename\r\n" + value;
     }
     return RespParser::encode_array({});
+}
+
+std::string CommandHandler::handle_acl_whoami() {
+    return RespParser::encode_bulk_string("default");
 }
