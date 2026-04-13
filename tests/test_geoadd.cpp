@@ -371,6 +371,106 @@ void test_geo_decode_roundtrip() {
     std::cout << "\u2713 Test passed: geo::decode round-trip for multiple cities\r\n";
 }
 
+static std::string make_geosearch_resp(std::string_view key,
+                                       std::string_view lon,
+                                       std::string_view lat,
+                                       std::string_view radius,
+                                       std::string_view unit) {
+    auto appender = [](std::string& out, std::string_view s) {
+        out += "$" + std::to_string(s.size()) + "\r\n" + std::string(s) + "\r\n";
+    };
+    std::string input = "*8\r\n$9\r\nGEOSEARCH\r\n";
+    appender(input, key);
+    appender(input, "FROMLONLAT");
+    appender(input, lon);
+    appender(input, lat);
+    appender(input, "BYRADIUS");
+    appender(input, radius);
+    appender(input, unit);
+    return input;
+}
+
+static std::vector<std::string> parse_resp_bulk_strings(const std::string& resp) {
+    std::vector<std::string> result;
+    size_t pos = 0;
+    if (resp.empty() || resp[0] != '*')
+        return result;
+    auto crlf = resp.find("\r\n");
+    if (crlf == std::string::npos)
+        return result;
+    pos = crlf + 2;
+    while (pos < resp.size()) {
+        if (resp[pos] != '$')
+            break;
+        auto len_crlf = resp.find("\r\n", pos);
+        if (len_crlf == std::string::npos)
+            break;
+        auto len_str = resp.substr(pos + 1, len_crlf - pos - 1);
+        auto len = std::stoull(len_str);
+        auto val_start = len_crlf + 2;
+        auto val_end = resp.find("\r\n", val_start);
+        if (val_end == std::string::npos)
+            break;
+        result.push_back(resp.substr(val_start, val_end - val_start));
+        pos = val_end + 2;
+    }
+    return result;
+}
+
+static void assert_unordered_members(const std::vector<std::string>& actual,
+                                     const std::vector<std::string>& expected) {
+    assert(actual.size() == expected.size());
+    for (const auto& e : expected) {
+        assert(std::ranges::find(actual, e) != actual.end());
+    }
+}
+
+void test_geosearch_basic_radius_search() {
+    Store store;
+    CommandHandler handler(store);
+
+    handler.process(make_geoadd_resp("places", "11.5030378", "48.164271", "Munich"));
+    handler.process(make_geoadd_resp("places", "2.2944692", "48.8584625", "Paris"));
+    handler.process(make_geoadd_resp("places", "-0.0884948", "51.506479", "London"));
+
+    auto resp1 = handler.process(make_geosearch_resp("places", "2", "48", "100000", "m"));
+    auto members1 = parse_resp_bulk_strings(resp1);
+    assert_unordered_members(members1, {"Paris"});
+
+    auto resp2 = handler.process(make_geosearch_resp("places", "2", "48", "500000", "m"));
+    auto members2 = parse_resp_bulk_strings(resp2);
+    assert_unordered_members(members2, {"Paris", "London"});
+
+    auto resp3 = handler.process(make_geosearch_resp("places", "11", "50", "300000", "m"));
+    auto members3 = parse_resp_bulk_strings(resp3);
+    assert_unordered_members(members3, {"Munich"});
+
+    std::cout << "\u2713 Test passed: GEOSEARCH basic radius search\r\n";
+}
+
+void test_geosearch_nonexistent_key() {
+    Store store;
+    CommandHandler handler(store);
+
+    auto resp = handler.process(make_geosearch_resp("nonexistent", "2", "48", "100", "m"));
+    assert(resp == "*0\r\n");
+
+    std::cout << "\u2713 Test passed: GEOSEARCH non-existent key returns empty array\r\n";
+}
+
+void test_geosearch_km_unit() {
+    Store store;
+    CommandHandler handler(store);
+
+    handler.process(make_geoadd_resp("places", "11.5030378", "48.164271", "Munich"));
+
+    auto resp = handler.process(make_geosearch_resp("places", "11", "50", "300", "km"));
+    auto members = parse_resp_bulk_strings(resp);
+    assert_unordered_members(members, {"Munich"});
+
+    std::cout << "\u2713 Test passed: GEOSEARCH with km unit\r\n";
+}
+
 int main() {
     std::cout << "Running GEOADD command tests...\n\n";
 
@@ -399,6 +499,12 @@ int main() {
     test_geodist_munich_paris();
     test_geodist_missing_member();
     test_geodist_nonexistent_key();
+
+    std::cout << "\nRunning GEOSEARCH command tests...\n\n";
+
+    test_geosearch_basic_radius_search();
+    test_geosearch_nonexistent_key();
+    test_geosearch_km_unit();
 
     std::cout << "\n\u2713 All tests passed!\n";
     return 0;
