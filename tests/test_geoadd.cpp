@@ -7,7 +7,7 @@ void test_geoadd_returns_integer_one() {
     Store store;
     CommandHandler handler(store);
 
-    std::string input = "*5\r\n$6\r\nGEOADD\r\n$6\r\nplaces\r\n$11\r\n11.5030378\r\n$9\r\n48."
+    std::string input = "*5\r\n$6\r\nGEOADD\r\n$6\r\nplaces\r\n$10\r\n11.5030378\r\n$9\r\n48."
                         "164271\r\n$6\r\nMunich\r\n";
     auto response = handler.process(input);
 
