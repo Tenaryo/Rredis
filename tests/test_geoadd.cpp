@@ -1,4 +1,5 @@
 #include "../src/handler/command_handler.hpp"
+#include "../src/protocol/resp_parser.hpp"
 #include "../src/store/store.hpp"
 #include <cassert>
 #include <iostream>
@@ -207,6 +208,48 @@ void test_geoadd_boundary_scores() {
     std::cout << "\u2713 Test passed: GEOADD boundary coordinates produce valid scores\r\n";
 }
 
+static std::string make_geopos_resp(std::string_view key, const std::vector<std::string>& members) {
+    auto n = 2 + members.size();
+    std::string input = "*" + std::to_string(n) + "\r\n$6\r\nGEOPOS\r\n";
+    input += "$" + std::to_string(key.size()) + "\r\n" + std::string(key) + "\r\n";
+    for (const auto& m : members) {
+        input += "$" + std::to_string(m.size()) + "\r\n" + m + "\r\n";
+    }
+    return input;
+}
+
+static std::string make_geo_pos_entry(const std::string& lon, const std::string& lat) {
+    return "*2\r\n" + RespParser::encode_bulk_string(lon) + RespParser::encode_bulk_string(lat);
+}
+
+void test_geopos_existing_and_missing_member() {
+    Store store;
+    CommandHandler handler(store);
+
+    handler.process(make_geoadd_resp("places", "-0.0884948", "51.506479", "London"));
+
+    auto resp = handler.process(make_geopos_resp("places", {"London", "missing"}));
+
+    auto pos_entry = make_geo_pos_entry("0", "0");
+    auto expected = "*2\r\n" + pos_entry + RespParser::encode_null_array();
+    assert(resp == expected);
+
+    std::cout << "\u2713 Test passed: GEOPOS returns position for existing and null for missing "
+                 "member\r\n";
+}
+
+void test_geopos_nonexistent_key() {
+    Store store;
+    CommandHandler handler(store);
+
+    auto resp = handler.process(make_geopos_resp("missing_key", {"London", "Munich"}));
+
+    auto expected = "*2\r\n" + RespParser::encode_null_array() + RespParser::encode_null_array();
+    assert(resp == expected);
+
+    std::cout << "\u2713 Test passed: GEOPOS returns null arrays for non-existent key\r\n";
+}
+
 int main() {
     std::cout << "Running GEOADD command tests...\n\n";
 
@@ -219,6 +262,11 @@ int main() {
     test_geoadd_paris_score();
     test_geoadd_multi_city_scores();
     test_geoadd_boundary_scores();
+
+    std::cout << "\nRunning GEOPOS command tests...\n\n";
+
+    test_geopos_existing_and_missing_member();
+    test_geopos_nonexistent_key();
 
     std::cout << "\n\u2713 All tests passed!\n";
     return 0;
