@@ -39,7 +39,7 @@ void test_acl_setuser_with_password_returns_ok() {
     CommandHandler handler(store, config);
 
     std::string input =
-        "*4\r\n$3\r\nACL\r\n$7\r\nSETUSER\r\n$7\r\ndefault\r\n$12\r\n>mypassword\r\n";
+        "*4\r\n$3\r\nACL\r\n$7\r\nSETUSER\r\n$7\r\ndefault\r\n$11\r\n>mypassword\r\n";
     auto response = handler.process(input);
 
     assert(response == "+OK\r\n");
@@ -53,7 +53,7 @@ void test_acl_setuser_password_updates_getuser_response() {
     CommandHandler handler(store, config);
 
     std::string setuser_input =
-        "*4\r\n$3\r\nACL\r\n$7\r\nSETUSER\r\n$7\r\ndefault\r\n$12\r\n>mypassword\r\n";
+        "*4\r\n$3\r\nACL\r\n$7\r\nSETUSER\r\n$7\r\ndefault\r\n$11\r\n>mypassword\r\n";
     handler.process(setuser_input);
 
     std::string getuser_input = "*3\r\n$3\r\nACL\r\n$7\r\nGETUSER\r\n$7\r\ndefault\r\n";

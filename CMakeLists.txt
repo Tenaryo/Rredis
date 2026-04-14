@@ -19,6 +19,7 @@ add_library(redis_core STATIC
     src/server/server.cpp
     src/server/server_runner.cpp
     src/store/store.cpp
+    src/util/sha256.cpp
 )
 
 target_compile_features(redis_core PUBLIC cxx_std_23)

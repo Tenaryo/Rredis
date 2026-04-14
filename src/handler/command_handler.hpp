@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "server/acl_manager.hpp"
 #include "server/server_config.hpp"
 
 class BlockingManager;
@@ -37,6 +38,7 @@ class CommandHandler {
     BlockingManager* blocking_manager_{nullptr};
     PubSubManager* pubsub_manager_{nullptr};
     std::function<size_t()> replica_count_fn_;
+    AclManager acl_manager_;
     std::unordered_map<int, TransactionState> transactions_;
   public:
     explicit CommandHandler(Store& store, const ServerConfig& config = {});
@@ -68,6 +70,7 @@ class CommandHandler {
     std::string handle_config_get(const std::string& param);
     std::string handle_acl_whoami();
     std::string handle_acl_getuser(const std::vector<std::string>& args);
+    std::string handle_acl_setuser(const std::vector<std::string>& args);
     std::string handle_xadd(const std::vector<std::string>& args);
     std::string handle_xrange(const std::vector<std::string>& args);
     std::string handle_xread(const std::vector<std::string>& args);

@@ -343,6 +343,14 @@ CommandHandler::execute_command(const std::vector<std::string>& args,
             }
             return {false, handle_acl_getuser(args)};
         }
+        if (subcmd == "SETUSER") {
+            if (args.size() < 3) {
+                return {false,
+                        RespParser::encode_error(
+                            "ERR wrong number of arguments for 'acl|setuser' command")};
+            }
+            return {false, handle_acl_setuser(args)};
+        }
         return {false, RespParser::encode_error("ERR unknown subcommand for 'ACL'. Try ACL HELP.")};
     }
     if (cmd == "REPLCONF") {
@@ -953,9 +961,27 @@ std::string CommandHandler::handle_acl_whoami() {
     return RespParser::encode_bulk_string("default");
 }
 
-std::string CommandHandler::handle_acl_getuser(const std::vector<std::string>& /* args */) {
+std::string CommandHandler::handle_acl_getuser(const std::vector<std::string>& args) {
+    auto* user = acl_manager_.get_user(args[2]);
+    if (!user) {
+        return RespParser::encode_null_array();
+    }
+    std::vector<std::string> flags;
+    if (user->nopass)
+        flags.emplace_back("nopass");
     return RespParser::encode_raw_array({RespParser::encode_bulk_string("flags"),
-                                         RespParser::encode_array({"nopass"}),
+                                         RespParser::encode_array(flags),
                                          RespParser::encode_bulk_string("passwords"),
-                                         RespParser::encode_array({})});
+                                         RespParser::encode_array(user->passwords)});
+}
+
+std::string CommandHandler::handle_acl_setuser(const std::vector<std::string>& args) {
+    const auto& username = args[2];
+    for (size_t i = 3; i < args.size(); ++i) {
+        const auto& rule = args[i];
+        if (!rule.empty() && rule[0] == '>') {
+            acl_manager_.set_password(username, rule.substr(1));
+        }
+    }
+    return RespParser::encode_simple_string("OK");
 }
