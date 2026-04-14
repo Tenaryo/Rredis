@@ -108,6 +108,7 @@ size_t Store::upper_bound(const Redis::Stream& stream, const StreamId& target) {
 }
 
 void Store::set(std::string key, std::string value, std::optional<uint64_t> ttl_ms) {
+    touch_key(key);
     Entry entry;
     entry.value = std::move(value);
     if (ttl_ms) {
@@ -125,6 +126,7 @@ std::optional<std::string> Store::get(std::string_view key) {
 }
 
 std::optional<int64_t> Store::incr(std::string_view key) {
+    touch_key(key);
     Entry* entry = find_valid_entry(key);
 
     if (!entry) {
@@ -148,15 +150,20 @@ std::optional<int64_t> Store::incr(std::string_view key) {
 
 bool Store::exists(std::string_view key) { return find_valid_entry(key) != nullptr; }
 
-bool Store::del(std::string_view key) { return data_.erase(std::string(key)) > 0; }
+bool Store::del(std::string_view key) {
+    touch_key(key);
+    return data_.erase(std::string(key)) > 0;
+}
 
 int64_t Store::rpush(std::string key, std::string value) {
+    touch_key(key);
     auto* list = get_or_create_list(std::move(key));
     list->push_back(std::move(value));
     return static_cast<int64_t>(list->size());
 }
 
 int64_t Store::lpush(std::string key, std::string value) {
+    touch_key(key);
     auto* list = get_or_create_list(std::move(key));
     list->push_front(std::move(value));
     return static_cast<int64_t>(list->size());
@@ -168,6 +175,7 @@ int64_t Store::llen(std::string_view key) {
 }
 
 std::optional<std::string> Store::lpop(std::string_view key) {
+    touch_key(key);
     auto* list = get_list(key);
     if (!list || list->empty())
         return std::nullopt;
@@ -177,6 +185,7 @@ std::optional<std::string> Store::lpop(std::string_view key) {
 }
 
 std::vector<std::string> Store::lpop(std::string_view key, int64_t count) {
+    touch_key(key);
     std::vector<std::string> result;
     auto* list = get_list(key);
     if (!list || list->empty()) {
@@ -259,6 +268,7 @@ std::string Store::get_type(std::string_view key) {
 std::string Store::xadd(std::string key,
                         std::string id,
                         const std::vector<std::pair<std::string, std::string>>& fields) {
+    touch_key(key);
     auto* stream = get_or_create_stream(std::move(key));
 
     int64_t timestamp{}, sequence{};
@@ -382,6 +392,7 @@ std::optional<std::string> Store::get_stream_max_id(std::string_view key) {
 }
 
 int64_t Store::zadd(std::string key, double score, std::string member) {
+    touch_key(key);
     auto* zset = get_or_create_zset(std::move(key));
     return zset->add(score, std::move(member));
 }
@@ -452,6 +463,7 @@ std::optional<double> Store::zscore(std::string_view key, std::string_view membe
 }
 
 int64_t Store::zrem(std::string_view key, std::string_view member) {
+    touch_key(key);
     auto* zset = get_zset(key);
     if (!zset)
         return 0;

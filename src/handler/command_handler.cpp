@@ -103,6 +103,20 @@ CommandHandler::process_with_fd(int fd,
         }
 
         auto& tx = it->second;
+
+        bool dirty = false;
+        for (const auto& [key, version] : tx.watched_keys) {
+            if (store_.get_key_version(key) != version) {
+                dirty = true;
+                break;
+            }
+        }
+
+        if (dirty) {
+            transactions_.erase(it);
+            return {false, RespParser::encode_null_array()};
+        }
+
         std::vector<std::string> results;
         results.reserve(tx.queued_commands.size());
         for (const auto& queued_args : tx.queued_commands) {
@@ -133,7 +147,7 @@ CommandHandler::process_with_fd(int fd,
         }
         auto& tx = transactions_[fd];
         for (size_t i = 1; i < args.size(); ++i) {
-            tx.watched_keys.insert(args[i]);
+            tx.watched_keys[args[i]] = store_.get_key_version(args[i]);
         }
         return {false, RespParser::encode_simple_string("OK")};
     }

@@ -63,6 +63,11 @@ class Store {
 
     std::unordered_map<std::string, Entry> data_;
 
+    uint64_t version_counter_{0};
+    std::unordered_map<std::string, uint64_t> key_versions_;
+
+    void touch_key(std::string_view key) { key_versions_[std::string(key)] = ++version_counter_; }
+
     static std::chrono::steady_clock::time_point get_current_time();
     bool is_expired(const Entry& entry) const;
     Entry* find_valid_entry(std::string_view key);
@@ -110,4 +115,9 @@ class Store {
 
     std::string get_type(std::string_view key);
     std::vector<std::string> keys();
+
+    uint64_t get_key_version(std::string_view key) const {
+        auto it = key_versions_.find(std::string(key));
+        return it != key_versions_.end() ? it->second : 0;
+    }
 };
