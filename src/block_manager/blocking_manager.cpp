@@ -1,13 +1,7 @@
 #include "blocking_manager.hpp"
 
 void BlockingManager::block_client(int fd, std::string key, std::chrono::milliseconds timeout) {
-    auto deadline = timeout.count() == 0 ? std::chrono::steady_clock::time_point::max()
-                                         : std::chrono::steady_clock::now() + timeout;
-
-    BlockedClient client{fd, key, deadline, StreamId{}};
-    auto& queue = blocked_clients_[key];
-    queue.push_back(std::move(client));
-    fd_to_client_[fd] = std::prev(queue.end());
+    block_client_for_stream(fd, std::move(key), StreamId{}, timeout);
 }
 
 void BlockingManager::block_client_for_stream(int fd,

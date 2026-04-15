@@ -16,6 +16,7 @@ class ReplicaConnector {
     CommandHandler* handler_{nullptr};
 
     bool send_and_expect(const std::vector<std::string>& args, std::string_view expected_response);
+    std::string process_buffer_impl();
 
     template <typename Pred> bool send_and_check(const std::vector<std::string>& args, Pred&& pred);
   public:

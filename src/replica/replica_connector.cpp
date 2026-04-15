@@ -196,6 +196,28 @@ std::optional<std::string> ReplicaConnector::receive_rdb() {
     }
 }
 
+std::string ReplicaConnector::process_buffer_impl() {
+    std::string responses;
+    while (true) {
+        auto result = RespParser::parse_one(pending_buffer_);
+        if (!result)
+            break;
+
+        bool is_getack = result->args.size() >= 2 && to_upper(result->args[0]) == "REPLCONF" &&
+                         to_upper(result->args[1]) == "GETACK";
+
+        if (is_getack) {
+            responses += RespParser::encode_array({"REPLCONF", "ACK", std::to_string(offset_)});
+        } else {
+            auto resp = std::string_view(pending_buffer_.data(), result->consumed);
+            handler_->process(resp);
+        }
+        offset_ += result->consumed;
+        pending_buffer_.erase(0, result->consumed);
+    }
+    return responses;
+}
+
 auto ReplicaConnector::process_propagated_commands() -> std::optional<std::string> {
     if (fd_ < 0 || !handler_)
         return std::nullopt;
@@ -206,50 +228,10 @@ auto ReplicaConnector::process_propagated_commands() -> std::optional<std::strin
         return std::nullopt;
 
     pending_buffer_.append(buf, static_cast<size_t>(n));
-
-    std::string responses;
-    while (true) {
-        auto result = RespParser::parse_one(pending_buffer_);
-        if (!result)
-            break;
-
-        bool is_getack = result->args.size() >= 2 && to_upper(result->args[0]) == "REPLCONF" &&
-                         to_upper(result->args[1]) == "GETACK";
-
-        if (is_getack) {
-            responses += RespParser::encode_array({"REPLCONF", "ACK", std::to_string(offset_)});
-        } else {
-            auto resp = std::string_view(pending_buffer_.data(), result->consumed);
-            handler_->process(resp);
-        }
-        offset_ += result->consumed;
-        pending_buffer_.erase(0, result->consumed);
-    }
-
-    return responses;
+    return process_buffer_impl();
 }
 
-auto ReplicaConnector::process_pending_buffer() -> std::string {
-    std::string responses;
-    while (true) {
-        auto result = RespParser::parse_one(pending_buffer_);
-        if (!result)
-            break;
-
-        bool is_getack = result->args.size() >= 2 && to_upper(result->args[0]) == "REPLCONF" &&
-                         to_upper(result->args[1]) == "GETACK";
-
-        if (is_getack) {
-            responses += RespParser::encode_array({"REPLCONF", "ACK", std::to_string(offset_)});
-        } else {
-            auto resp = std::string_view(pending_buffer_.data(), result->consumed);
-            handler_->process(resp);
-        }
-        offset_ += result->consumed;
-        pending_buffer_.erase(0, result->consumed);
-    }
-    return responses;
-}
+auto ReplicaConnector::process_pending_buffer() -> std::string { return process_buffer_impl(); }
 
 void ReplicaConnector::send_response(std::string_view data) {
     size_t sent = 0;
