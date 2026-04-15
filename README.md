@@ -1,6 +1,29 @@
 # Redis_Cpp
 
-Redis server implementation in C++23, featuring an epoll-based event loop, RESP protocol support, master-replica replication, Pub/Sub, Streams, and more. Built from scratch with zero external dependencies.
+[![CI](https://github.com/Tenaryo/Redis_Cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/Tenaryo/Redis_Cpp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
+
+Redis server implementation in C++23, featuring an epoll-based event loop, RESP protocol support, master-replica replication, Pub/Sub, Streams, Sorted Sets, Geo commands, ACL authentication, and more. Built from scratch with zero external dependencies.
+
+## Table of Contents
+
+- [Features](#features)
+  - [Data Types](#data-types)
+  - [Supported Commands](#supported-commands)
+- [Architecture](#architecture)
+- [Key Design Decisions](#key-design-decisions)
+- [Usage](#usage)
+  - [Build](#build)
+  - [Run](#run)
+  - [CLI Options](#cli-options)
+  - [Connect with redis-cli](#connect-with-redis-cli)
+- [Testing](#testing)
+- [Replication](#replication)
+- [API Documentation](#api-documentation)
+- [Contributing](#contributing)
+- [Changelog](#changelog)
+- [License](#license)
 
 ## Features
 
@@ -8,9 +31,10 @@ Redis server implementation in C++23, featuring an epoll-based event loop, RESP 
 
 | Type | Description |
 |------|-------------|
-| `string` | Basic key-value with TTL support |
-| `list` | Doubly-linked list (deque-based) |
+| `string` | Basic key-value with TTL support (`EX`/`PX`) |
+| `list` | Doubly-linked list (deque-based) with blocking operations |
 | `stream` | Append-only log with time-series IDs |
+| `zset` | Sorted set with score-based ordering |
 
 ### Supported Commands
 
@@ -18,13 +42,12 @@ Redis server implementation in C++23, featuring an epoll-based event loop, RESP 
 
 | Command | Description |
 |---------|-------------|
-| `PING` | Test connectivity |
+| `PING` | Test connectivity (supports subscribed mode) |
 | `ECHO` | Echo the given string |
 | `INFO` | Server and replication info |
 | `CONFIG GET` | Get configuration parameters (`dir`, `dbfilename`) |
-| `KEYS` | List all stored keys |
+| `KEYS` | List all stored keys (triggers lazy expiration) |
 | `TYPE` | Get the type of a key |
-| `WAIT` | Wait for replica acknowledgments |
 
 #### String Operations
 
@@ -56,6 +79,26 @@ Redis server implementation in C++23, featuring an epoll-based event loop, RESP 
 
 The `XADD` command supports automatic ID generation (`*`), auto-incrementing sequences (`<timestamp>-*`), and explicit IDs.
 
+#### Sorted Set Operations
+
+| Command | Description |
+|---------|-------------|
+| `ZADD key score member` | Add or update a member with score |
+| `ZRANK key member` | Get the rank of a member |
+| `ZRANGE key start stop` | Query a range by rank (supports negative indices) |
+| `ZCARD key` | Get the number of members |
+| `ZSCORE key member` | Get the score of a member |
+| `ZREM key member` | Remove a member |
+
+#### Geo Operations
+
+| Command | Description |
+|---------|-------------|
+| `GEOADD key longitude latitude member` | Add a geospatial item (validates lon/lat) |
+| `GEOPOS key member [member ...]` | Get coordinates of members |
+| `GEODIST key member1 member2` | Haversine distance between two members |
+| `GEOSEARCH key FROMLONLAT lon lat BYRADIUS radius unit` | Search within radius (M/KM/MI/FT) |
+
 #### Pub/Sub
 
 | Command | Description |
@@ -71,8 +114,10 @@ Subscribed clients can only execute `SUBSCRIBE`, `UNSUBSCRIBE`, `PING`, `QUIT`, 
 | Command | Description |
 |---------|-------------|
 | `MULTI` | Start a transaction |
-| `EXEC` | Execute all queued commands |
+| `EXEC` | Execute all queued commands (with optimistic locking) |
 | `DISCARD` | Discard the transaction |
+| `WATCH key [key ...]` | Watch keys for optimistic concurrency control |
+| `UNWATCH` | Clear all watched keys |
 
 #### Replication
 
@@ -80,6 +125,16 @@ Subscribed clients can only execute `SUBSCRIBE`, `UNSUBSCRIBE`, `PING`, `QUIT`, 
 |---------|-------------|
 | `REPLCONF` | Replica configuration handshake |
 | `PSYNC` | Partial/full synchronization with master |
+| `WAIT numreplicas timeout` | Block until N replicas acknowledge writes |
+
+#### ACL & Authentication
+
+| Command | Description |
+|---------|-------------|
+| `AUTH username password` | Authenticate with username and password |
+| `ACL WHOAMI` | Return the current authenticated username |
+| `ACL GETUSER username` | Get user flags and password hashes |
+| `ACL SETUSER username >password` | Set password for a user (SHA-256 hashed) |
 
 ## Architecture
 
@@ -92,11 +147,12 @@ src/
   protocol/         RESP protocol parser and encoder
   rdb/              RDB file parser (loads snapshots on startup)
   replica/          Master-replica handshake and command propagation
-  server/           TCP server socket, server config, application runner
-  store/            In-memory data store (String, List, Stream)
+  server/           TCP server socket, server config, application runner, ACL manager
+  store/            In-memory data store (String, List, Stream, SortedSet)
   block_manager/    Blocking operation manager (BLPOP, XREAD BLOCK)
   pubsub/           Pub/Sub channel manager
-  util/             Integer parsing, string utilities
+  geo/              Geohash encoding/decoding and Haversine distance
+  util/             Integer parsing, string utilities, SHA-256
 ```
 
 ### Key Design Decisions
@@ -105,6 +161,7 @@ src/
 - **Lazy expiration** -- Keys with TTL are checked for expiration on access (`find_valid_entry`) and periodically cleaned during `KEYS` calls.
 - **RESP v2** -- Full parser for the Redis Serialization Protocol, supporting inline parsing of pipelined commands via `parse_one`.
 - **Streaming replication** -- Write commands are automatically propagated to connected replicas. The `WAIT` command tracks replica acknowledgment offsets.
+- **Optimistic locking** -- `WATCH` tracks key versions; `EXEC` aborts if any watched key was modified.
 - **Zero dependencies** -- Uses only the C++23 standard library and POSIX APIs (epoll, sockets). No third-party libraries required.
 
 ## Usage
@@ -119,6 +176,7 @@ src/
 Requires:
 - C++23 compiler (GCC 13+ recommended)
 - CMake 3.21+
+- Ninja (optional, recommended)
 
 ### Run
 
@@ -163,6 +221,15 @@ OK
 1) "c"
 2) "b"
 3) "a"
+> ZADD leaderboard 100 alice 85 bob
+(integer) 2
+> ZRANGE leaderboard 0 -1
+1) "bob"
+2) "alice"
+> GEOADD cities 13.361389 38.115556 "Palermo"
+(integer) 1
+> GEODIST cities Palermo Catania
+"166.27"
 > XADD mystream * name alice age 30
 "1745000000000-0"
 > XRANGE mystream - +
@@ -181,14 +248,17 @@ OK
 
 Tests are built alongside the main binary. Each test file in `tests/` is compiled as a standalone executable and exercises specific subsystems:
 
-- Command handling (SET, GET, INCR, KEYS, CONFIG GET, INFO)
-- List operations (LPUSH, RPUSH, LPOP, LRANGE)
-- Stream operations (XADD auto-ID, XRANGE, XREAD, XREAD BLOCK with `$`)
-- Transactions (MULTI, EXEC, DISCARD)
-- Pub/Sub (SUBSCRIBE, PUBLISH)
-- Replication (handshake, command propagation, WAIT)
-- RDB parsing
-- CLI argument parsing
+- **Commands**: SET, GET, INCR, KEYS, TYPE, CONFIG GET, INFO
+- **List operations**: LPUSH, RPUSH, LPOP, LRANGE, LLEN, BLPOP
+- **Stream operations**: XADD (auto-ID, auto-seq), XRANGE, XREAD, XREAD BLOCK, XREAD `$`
+- **Sorted set operations**: ZADD, ZRANK, ZRANGE, ZCARD, ZSCORE, ZREM
+- **Geo operations**: GEOADD (with validation)
+- **Pub/Sub**: SUBSCRIBE, PUBLISH, UNSUBSCRIBE
+- **Transactions**: MULTI, EXEC, DISCARD, WATCH, UNWATCH
+- **ACL & Auth**: AUTH, ACL WHOAMI, ACL GETUSER, ACL SETUSER
+- **Replication**: handshake (PING, REPLCONF, PSYNC), command propagation, WAIT
+- **RDB parsing**
+- **CLI argument parsing**
 
 ## Replication
 
@@ -198,3 +268,25 @@ Redis_Cpp supports master-replica replication:
 2. **Replica** starts with `--replicaof "<master-host> <master-port>"` and performs a full handshake (PING -> REPLCONF -> PSYNC).
 3. Write commands executed on the master are automatically propagated to all connected replicas.
 4. Use `WAIT numreplicas timeout` to block until the specified number of replicas have acknowledged the writes.
+
+## API Documentation
+
+Generate API documentation with [Doxygen](https://www.doxygen.nl/):
+
+```bash
+doxygen Doxyfile
+```
+
+The HTML documentation will be generated in `docs/html/`. Open `docs/html/index.html` in a browser to view it.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, code style, commit conventions, and the PR process.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a history of project changes.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
